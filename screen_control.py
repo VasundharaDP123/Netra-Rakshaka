@@ -25,16 +25,40 @@ def show_overlay():
     root = tk.Tk()
     root.attributes('-fullscreen', True)
     root.attributes('-topmost', True)
-    root.configure(bg='black')
+    root.configure(bg='#0d1117')
     
-    label = tk.Label(root, text="👁 NETRA RAKSHAKA", font=('Helvetica', 48, 'bold'), fg='#00bcd4', bg='black')
-    label.pack(expand=True, pady=(100, 0))
+    # Main Warning
+    label = tk.Label(root, text="🛑 MANDATORY EYE BREAK", font=('DM Sans', 48, 'bold'), fg='#f87171', bg='#0d1117')
+    label.pack(expand=True, pady=(80, 0))
 
-    label2 = tk.Label(root, text="ENFORCED EYE BREAK IN PROGRESS", font=('Helvetica', 24), fg='white', bg='black')
+    label2 = tk.Label(root, text="Critical strain detected. Screen dimmed.\nRest your eyes for 20 seconds.", font=('DM Sans', 18), fg='#7d8590', bg='#0d1117')
     label2.pack(expand=True)
     
-    count_label = tk.Label(root, text="20", font=('Helvetica', 96, 'bold'), fg='#ff1744', bg='black')
-    count_label.pack(expand=True, pady=(0, 100))
+    # Countdown
+    count_label = tk.Label(root, text="20", font=('DM Mono', 96, 'bold'), fg='#e6edf3', bg='#0d1117')
+    count_label.pack(expand=True, pady=(0, 40))
+
+    # Instructions Frame
+    inst_frame = tk.Frame(root, bg='#0d1117')
+    inst_frame.pack(expand=True, pady=(0, 100))
+
+    # Option 1
+    opt1 = tk.Frame(inst_frame, bg='#161b22', bd=1, relief="solid", padx=20, pady=20)
+    opt1.grid(row=0, column=0, padx=20)
+    tk.Label(opt1, text="👁", font=('Segoe UI Emoji', 36), fg='white', bg='#161b22').pack()
+    tk.Label(opt1, text="Close your eyes\nor look away", font=('DM Sans', 14), fg='#e6edf3', bg='#161b22').pack(pady=(10,0))
+
+    # Option 2
+    opt2 = tk.Frame(inst_frame, bg='#161b22', bd=1, relief="solid", padx=20, pady=20)
+    opt2.grid(row=0, column=1, padx=20)
+    tk.Label(opt2, text="🌿", font=('Segoe UI Emoji', 36), fg='white', bg='#161b22').pack()
+    tk.Label(opt2, text="Focus on something\n20 feet away", font=('DM Sans', 14), fg='#e6edf3', bg='#161b22').pack(pady=(10,0))
+
+    # Option 3
+    opt3 = tk.Frame(inst_frame, bg='#161b22', bd=1, relief="solid", padx=20, pady=20)
+    opt3.grid(row=0, column=2, padx=20)
+    tk.Label(opt3, text="💧", font=('Segoe UI Emoji', 36), fg='white', bg='#161b22').pack()
+    tk.Label(opt3, text="Blink slowly\n10 times", font=('DM Sans', 14), fg='#e6edf3', bg='#161b22').pack(pady=(10,0))
 
     def countdown(count):
         if count > 0:
