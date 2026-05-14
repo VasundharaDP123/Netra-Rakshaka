@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netra Rakshaka | Intelligence Portal</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Premium Fonts and Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <!-- Elegant Alert Modal -->
+    <div id="alert-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-icon">
+                <i class="ri-error-warning-fill"></i>
+            </div>
+            <h2>Critical Eye Strain Detected</h2>
+            <p>Your biometric markers indicate severe fatigue. A mandatory 20-second eye break is being enforced.</p>
+            <div class="countdown-wrapper">
+                <span id="countdown">5</span> seconds remaining
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="alert-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="logo-container">
+                <i class="ri-eye-2-line"></i>
+                <span>Netra Rakshaka</span>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-label">System Status</div>
+                <div id="connection-pill" class="status-indicator disconnected">
+                    <div class="status-dot"></div>
+                    <span>System Offline</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-label">Demo Control Panel</div>
+                <button onclick="setScenario('Normal')" class="scenario-btn active" id="btn-normal">
+                    <i class="ri-heart-pulse-line"></i> Healthy Baseline
+                </button>
+                <button onclick="setScenario('Degrading')" class="scenario-btn" id="btn-degrading">
+                    <i class="ri-funds-box-line"></i> Gradual Fatigue
+                </button>
+                <button onclick="setScenario('Critical')" class="scenario-btn alert" id="btn-critical">
+                    <i class="ri-alert-line"></i> Critical Attack
+                </button>
+            </div>
+            
+            <div class="sidebar-footer">
+                <p>AI-Powered Ocular Defense</p>
+                <p class="version">v2.0.4 Beta</p>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header>
+                <div class="header-titles">
+                    <h1>Real-Time Biometrics</h1>
+                    <p>Live analysis of ocular telemetry and environmental factors</p>
+                </div>
+                <div class="header-profile">
+                    <!-- Placeholder avatar -->
+                    <img src="https://ui-avatars.com/api/?name=User&background=0ea5e9&color=fff" alt="User" class="avatar">
+                </div>
+            </header>
+
+            <!-- Primary Metrics -->
+            <section class="metrics-grid">
+                <!-- Strain Score Card -->
+                <div class="glass-panel metric-card highlight-card">
+                    <div class="card-header">
+                        <h3>Eye Strain Score</h3>
+                        <i class="ri-dashboard-3-line"></i>
+                    </div>
+                    <div class="score-display">
+                        <div class="circular-progress">
+                            <svg viewBox="0 0 100 100">
+                                <circle class="bg" cx="50" cy="50" r="45"></circle>
+                                <circle class="progress" id="score-circle" cx="50" cy="50" r="45"></circle>
+                            </svg>
+                            <div class="inner-value">
+                                <span id="strain-score-val" class="score-val safe">0</span>
+                            </div>
+                        </div>
+                        <div class="score-info">
+                            <span id="strain-label" class="badge safe">Optimal</span>
+                            <span class="trend">AI Analysis Active</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Blink Rate</h3>
+                        <i class="ri-eye-line"></i>
+                    </div>
+                    <div class="metric-value-container">
+                        <span id="blink-rate-val" class="value safe">16</span>
+                        <span class="unit">bpm</span>
+                    </div>
+                    <div class="metric-footer">
+                        <span class="target">Target: 15-20</span>
+                    </div>
+                </div>
+
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Screen Distance</h3>
+                        <i class="ri-macbook-line"></i>
+                    </div>
+                    <div class="metric-value-container">
+                        <span id="distance-val" class="value safe">45</span>
+                        <span class="unit">cm</span>
+                    </div>
+                    <div class="metric-footer">
+                        <span class="target">Target: > 30cm</span>
+                    </div>
+                </div>
+
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Session Focus</h3>
+                        <i class="ri-timer-line"></i>
+                    </div>
+                    <div class="metric-value-container">
+                        <span id="session-time-val" class="value">0</span>
+                        <span class="unit">min</span>
+                    </div>
+                    <div class="metric-footer">
+                        <span class="target">Continuous usage</span>
+                    </div>
+                </div>
+            </section>
+
+            <div class="bottom-layout">
+                <!-- Chart -->
+                <section class="glass-panel chart-container">
+                    <div class="card-header">
+                        <h3>Fatigue Trajectory</h3>
+                        <div class="chart-legend">
+                            <span class="legend-dot"></span> Strain Index over 60s
+                        </div>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <canvas id="strainChart"></canvas>
+                    </div>
+                </section>
+
+                <!-- Secondary Environmental -->
+                <section class="glass-panel environmental-container">
+                    <div class="card-header">
+                        <h3>Environmental telemetry</h3>
+                    </div>
+                    <div class="env-grid">
+                        <div class="env-item">
+                            <div class="env-icon"><i class="ri-temp-hot-line"></i></div>
+                            <div class="env-data">
+                                <span class="env-label">Eye Temp</span>
+                                <span class="env-val" id="temp-val">35.0°C</span>
+                            </div>
+                        </div>
+                        <div class="env-item">
+                            <div class="env-icon"><i class="ri-drop-line"></i></div>
+                            <div class="env-data">
+                                <span class="env-label">Humidity</span>
+                                <span class="env-val" id="humidity-val">50%</span>
+                            </div>
+                        </div>
+                        <div class="env-item">
+                            <div class="env-icon"><i class="ri-sun-line"></i></div>
+                            <div class="env-data">
+                                <span class="env-label">Ambient Lux</span>
+                                <span class="env-val" id="lux-val">300</span>
+                            </div>
+                        </div>
+                        <div class="env-item">
+                            <div class="env-icon"><i class="ri-user-smile-line"></i></div>
+                            <div class="env-data">
+                                <span class="env-label">Posture Tilt</span>
+                                <span class="env-val" id="tilt-val">5°</span>
+                            </div>
+                        </div>
+                        <div class="env-item">
+                            <div class="env-icon"><i class="ri-timer-flash-line"></i></div>
+                            <div class="env-data">
+                                <span class="env-label">Blink Dur.</span>
+                                <span class="env-val" id="blink-dur-val">200ms</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
