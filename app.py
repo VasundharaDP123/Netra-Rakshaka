@@ -58,5 +58,5 @@ if __name__ == "__main__":
     socketio.start_background_task(target=stream_data)
     
     # Run server
-    print("Netra Rakshaka Server running on http://127.0.0.0:5000")
+    print("Netra Rakshaka Server running on http://127.0.0.1:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=False)

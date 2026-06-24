@@ -5,3 +5,5 @@ eventlet
 pandas
 numpy
 wmi
+pyserial
+scikit-learn

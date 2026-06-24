@@ -88,6 +88,7 @@ def on_sensor_update(data):
 
 def main_loop():
     global trigger_dim, last_dim_time
+    print("DEBUG: Main loop started.")
     while True:
         if trigger_dim:
             print("🔴 TRIGGERING SCREEN DIM!")
@@ -98,23 +99,29 @@ def main_loop():
             with open("data/breaks_log.txt", "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Enforced 20-second break\n")
             
+            # Set cooldown timestamp and reset trigger BEFORE showing the overlay
+            # This blocks the background thread from accumulating critical packets during the break
+            last_dim_time = time.time()
+            trigger_dim = False
+            
             # Show overlay (blocks for 20s) in main thread
             show_overlay()
             
             print("✅ Restoring screen brightness")
             set_brightness(100)
-            
-            trigger_dim = False
-            last_dim_time = time.time()
-            print("⏳ Cooldown period started (50s) to prevent loop...")
+            print("⏳ Cooldown period active (50s) to prevent loop...")
         
         time.sleep(0.1)
 
 if __name__ == '__main__':
     print("Starting Screen Control Intervention Script...")
+    
+    print("DEBUG: Attempting Socket.IO connection to http://127.0.0.1:5000...")
     try:
-        sio.connect('http://localhost:5000')
+        sio.connect('http://127.0.0.1:5000')
+        print("DEBUG: Socket.IO Connected successfully!")
+        
         # Run the tkinter loop in the main thread to prevent thread crashes
         main_loop()
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error during connection/execution: {e}")

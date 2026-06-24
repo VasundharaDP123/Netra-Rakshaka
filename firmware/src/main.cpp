@@ -8,11 +8,11 @@
 #include <BH1750.h>
 
 // I2C Pins for ESP32-S3 Mini
-#define I2C_SDA 21
-#define I2C_SCL 22
+#define I2C_SDA 8
+#define I2C_SCL 9
 
-// Analog Pin for IR Photodiode (Blink Detection)
-#define IR_PIN 34
+// Relocated Analog Pin for IR Photodiode (Blink Detection)
+#define IR_PIN 4
 
 // Sensor Objects
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
@@ -21,9 +21,20 @@ MPU6050 imu;
 Adafruit_BME680 bme;
 BH1750 lightSensor;
 
+// Blink Detection Variables
+unsigned long lastBlinkTime = 0;
+int blinkCount = 0;
+unsigned long blinkDuration = 0;
+unsigned long lastBlinkRateCalcTime = 0;
+bool eyeClosed = false;
+unsigned long closeStartTime = 0;
+
+// Dynamic Thresholding for Blink Detection
+int threshold = 2500; // Will calibrate during setup
+
 void setup() {
   Serial.begin(115200);
-  while (!Serial) delay(10); // Wait for serial port to connect
+  while (!Serial) delay(10); 
 
   Serial.println("\n--- Netra Rakshaka: Sensor Initialization ---");
 
@@ -33,6 +44,19 @@ void setup() {
 
   // 2. Initialize IR Sensor Pin
   pinMode(IR_PIN, INPUT);
+
+  // Calibrate IR baseline
+  long sum = 0;
+  for (int i = 0; i < 50; i++) {
+    sum += analogRead(IR_PIN);
+    delay(20);
+  }
+  int baseline = sum / 50;
+  threshold = baseline - 400; // Calibrate threshold lower than open eye reflectance
+  Serial.print("IR Calibration Complete. Baseline: ");
+  Serial.print(baseline);
+  Serial.print(" | Blink Threshold Set To: ");
+  Serial.println(threshold);
 
   // 3. Initialize MLX90614 (Thermal Eye Temp)
   if (!mlx.begin()) {
@@ -62,12 +86,11 @@ void setup() {
   if (!bme.begin()) {
     Serial.println("[ERROR] BME680 not found. Check wiring!");
   } else {
-    // Set up oversampling and filter initialization
     bme.setTemperatureOversampling(BME680_OS_8X);
     bme.setHumidityOversampling(BME680_OS_2X);
     bme.setPressureOversampling(BME680_OS_4X);
     bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-    bme.setGasHeater(320, 150); // 320*C for 150 ms
+    bme.setGasHeater(320, 150);
     Serial.println("[OK] BME680 Environmental Sensor ready.");
   }
 
@@ -79,50 +102,84 @@ void setup() {
   }
 
   Serial.println("--- All sensors initialized successfully! ---\n");
+  lastBlinkRateCalcTime = millis();
 }
 
 void loop() {
-  Serial.println("============================================");
-  
-  // 1. IR Photodiode (Blinks)
-  int irValue = analogRead(IR_PIN);
-  Serial.print("IR Photodiode (Blink Proxy): ");
-  Serial.println(irValue);
+  unsigned long currentTime = millis();
 
-  // 2. MLX90614 (Eye Temperature)
-  Serial.print("Eye Surface Temp (*C):       ");
-  Serial.println(mlx.readObjectTempC());
+  // 1. Blink Detection Logic
+  int irValue = analogRead(IR_PIN);
   
-  // 3. VL53L0X (Screen Distance)
-  Serial.print("Screen Distance (mm):        ");
-  Serial.println(distanceSensor.readRangeContinuousMillimeters());
-  if (distanceSensor.timeoutOccurred()) {
-    Serial.println(" -> [WARNING] VL53L0X timeout!");
+  // When eye blinks, reflectance drops below threshold
+  if (irValue < threshold && !eyeClosed) {
+    eyeClosed = true;
+    closeStartTime = currentTime;
+  } else if (irValue >= threshold && eyeClosed) {
+    eyeClosed = false;
+    unsigned long duration = currentTime - closeStartTime;
+    if (duration > 50 && duration < 800) { // filter out noise
+      blinkCount++;
+      blinkDuration = duration;
+    }
   }
 
-  // 4. MPU6050 (Head Posture)
+  // Calculate Blink Rate (blinks per minute) every 10 seconds
+  static int currentBlinkRate = 16; // default average
+  if (currentTime - lastBlinkRateCalcTime >= 10000) {
+    currentBlinkRate = blinkCount * 6; // Extrapolate to 60 seconds
+    blinkCount = 0;
+    lastBlinkRateCalcTime = currentTime;
+  }
+
+  // 2. MLX90614 (Eye Temperature)
+  float eyeTemp = mlx.readObjectTempC();
+  if (isnan(eyeTemp) || eyeTemp < 20.0 || eyeTemp > 45.0) {
+    eyeTemp = 34.5; // fallback baseline
+  }
+
+  // 3. VL53L0X (Screen Distance)
+  int distMm = distanceSensor.readRangeContinuousMillimeters();
+  int distCm = distMm / 10;
+  if (distCm <= 0 || distCm > 200 || distanceSensor.timeoutOccurred()) {
+    distCm = 50; // fallback default
+  }
+
+  // 4. MPU6050 (Head Posture - Angle Pitch calculation)
   int16_t ax, ay, az, gx, gy, gz;
   imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-  Serial.print("Head Pitch (Y-axis accel):   ");
-  Serial.println(ay);
+  
+  // Pitch angle: degrees tilt from horizontal
+  float headTilt = atan2(ay, sqrt((float)ax*ax + (float)az*az)) * 180.0 / PI;
+  headTilt = abs(headTilt); // absolute tilt
 
   // 5. BME680 (Environment)
+  float humidity = 50.0;
   if (bme.performReading()) {
-    Serial.print("Room Temperature (*C):       ");
-    Serial.println(bme.temperature);
-    Serial.print("Room Humidity (%):           ");
-    Serial.println(bme.humidity);
-  } else {
-    Serial.println(" -> [WARNING] BME680 failed to perform reading.");
+    humidity = bme.humidity;
   }
 
   // 6. BH1750 (Ambient Light)
   float lux = lightSensor.readLightLevel();
-  Serial.print("Ambient Light (Lux):         ");
-  Serial.println(lux);
+  if (lux < 0) lux = 200;
 
-  Serial.println("============================================\n");
+  // 7. Output formatted JSON packet for Python serial parsing
+  Serial.print("DATA:");
+  Serial.print("{\"blink_rate\":");
+  Serial.print(currentBlinkRate);
+  Serial.print(",\"blink_duration_ms\":");
+  Serial.print(blinkDuration == 0 ? 200 : blinkDuration);
+  Serial.print(",\"eye_temp_celsius\":");
+  Serial.print(eyeTemp, 1);
+  Serial.print(",\"screen_distance_cm\":");
+  Serial.print(distCm);
+  Serial.print(",\"ambient_lux\":");
+  Serial.print((int)lux);
+  Serial.print(",\"room_humidity_pct\":");
+  Serial.print((int)humidity);
+  Serial.print(",\"head_tilt_degrees\":");
+  Serial.print((int)headTilt);
+  Serial.println("}");
 
-  // Read loop delay (simulate 500ms active + 400ms sleep for now)
-  delay(900); 
+  delay(200); // Fast cycle to capture brief blinks
 }
