@@ -4,7 +4,7 @@
 #include <VL53L0X.h>
 #include <MPU6050.h>
 #include <Adafruit_Sensor.h>
-#include <Adafruit_BME680.h>
+#include <Adafruit_BME280.h>
 #include <BH1750.h>
 
 // I2C Pins for ESP32-S3 Mini
@@ -18,7 +18,7 @@
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 VL53L0X distanceSensor;
 MPU6050 imu;
-Adafruit_BME680 bme;
+Adafruit_BME280 bme;
 BH1750 lightSensor;
 
 // Blink Detection Variables
@@ -82,16 +82,16 @@ void setup() {
     Serial.println("[OK] MPU6050 IMU ready.");
   }
 
-  // 6. Initialize BME680 (Environmental)
-  if (!bme.begin()) {
-    Serial.println("[ERROR] BME680 not found. Check wiring!");
+  // 6. Initialize BME280 (Environmental)
+  if (!bme.begin(0x76)) {
+    Serial.println("[ERROR] BME280 not found at 0x76. Trying default 0x77...");
+    if (!bme.begin(0x77)) {
+      Serial.println("[ERROR] BME280 not found. Check wiring!");
+    } else {
+      Serial.println("[OK] BME280 Environmental Sensor ready at 0x77.");
+    }
   } else {
-    bme.setTemperatureOversampling(BME680_OS_8X);
-    bme.setHumidityOversampling(BME680_OS_2X);
-    bme.setPressureOversampling(BME680_OS_4X);
-    bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-    bme.setGasHeater(320, 150);
-    Serial.println("[OK] BME680 Environmental Sensor ready.");
+    Serial.println("[OK] BME280 Environmental Sensor ready at 0x76.");
   }
 
   // 7. Initialize BH1750 (Ambient Light)
@@ -153,10 +153,10 @@ void loop() {
   float headTilt = atan2(ay, sqrt((float)ax*ax + (float)az*az)) * 180.0 / PI;
   headTilt = abs(headTilt); // absolute tilt
 
-  // 5. BME680 (Environment)
-  float humidity = 50.0;
-  if (bme.performReading()) {
-    humidity = bme.humidity;
+  // 5. BME280 (Environment)
+  float humidity = bme.readHumidity();
+  if (isnan(humidity) || humidity < 0.0 || humidity > 100.0) {
+    humidity = 50.0;
   }
 
   // 6. BH1750 (Ambient Light)
