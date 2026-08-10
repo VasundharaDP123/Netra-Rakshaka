@@ -24,8 +24,9 @@ class Simulator:
         self.hardware_thread = None
         self.lock = threading.Lock()
 
-        if SERIAL_AVAILABLE:
-            self.start_hardware_polling()
+        # DISABLED to prevent conflict with Wi-Fi receiver
+        # if SERIAL_AVAILABLE:
+        #     self.start_hardware_polling()
 
     def start_hardware_polling(self):
         self.hardware_thread = threading.Thread(target=self._hardware_loop, daemon=True)

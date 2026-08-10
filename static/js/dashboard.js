@@ -167,62 +167,64 @@ function activate(key, el) {
   }
 }
 
-// ── Live data simulation ──
-function jitter(base, noise) { return Math.max(0, base + (Math.random()-0.5)*noise*2); }
+// --- REAL WEBSOCKET DATA INTEGRATION ---
+const socket = io();
 
-function updateLive() {
-  const s = SCENARIOS[current];
+socket.on('sensor_update', function(data) {
   packetCount++;
   document.getElementById('packets').textContent = packetCount;
 
   // Strain gauge
-  const strain = Math.round(jitter(s.strainBase, s.strainNoise));
+  const strain = data.strain_score;
   document.getElementById('strain-num').textContent = strain;
   const arc = document.getElementById('gauge-arc');
   arc.style.strokeDashoffset = 163.4 - (strain/100)*163.4;
 
   // Blink
-  const blink = Math.round(jitter(s.blinkBase, s.blinkNoise));
+  const blink = data.blink_rate;
   document.getElementById('blink-val').textContent = blink;
   document.getElementById('blink-val').style.color = blink < 8 ? 'var(--red)' : blink < 13 ? 'var(--amber)' : 'var(--blue)';
   document.getElementById('blink-bar').style.width = Math.min(100,(blink/20)*100)+'%';
   document.getElementById('blink-bar').style.background = blink < 8 ? 'var(--red)' : blink < 13 ? 'var(--amber)' : 'var(--blue)';
 
   // Distance
-  const dist = Math.round(jitter(s.distBase, s.distNoise));
+  const dist = data.screen_distance_cm;
   document.getElementById('dist-val').textContent = dist;
   document.getElementById('dist-val').style.color = dist < 25 ? 'var(--red)' : dist < 33 ? 'var(--amber)' : 'var(--green)';
   document.getElementById('dist-bar').style.width = Math.min(100,(dist/70)*100)+'%';
   document.getElementById('dist-bar').style.background = dist < 25 ? 'var(--red)' : dist < 33 ? 'var(--amber)' : 'var(--green)';
 
   // Focus/session
-  sessionTick++;
-  const focusMin = s.focusBase + Math.floor(sessionTick/30);
+  const focusMin = data.continuous_screen_time_min || 0;
   document.getElementById('focus-val').textContent = focusMin;
   const breakLeft = Math.max(0, 20 - (focusMin % 20));
   document.getElementById('focus-sub').textContent = breakLeft > 0
-    ? `20-20-20 break due in ${breakLeft} min` : 'Break overdue — rest now!';
+    ? `20-20-20 break due in ${breakLeft} min` : 'Break overdue - rest now!';
   document.getElementById('focus-bar').style.width = Math.min(100,(focusMin/120)*100)+'%';
 
-  // Telemetry (gentle jitter)
-  const eyeT = (parseFloat(s.eye) + (Math.random()-0.5)*0.3).toFixed(1);
-  const humV  = Math.round(parseFloat(s.hum)  + (Math.random()-0.5)*2);
-  const luxV  = Math.round(parseFloat(s.lux)  + (Math.random()-0.5)*15);
-  const tiltV = (parseFloat(s.tilt) + (Math.random()-0.5)*1.5).toFixed(1);
-  const bdV   = Math.round(parseFloat(s.bd)   + (Math.random()-0.5)*10);
-  document.getElementById('t-eye').textContent  = eyeT+'°C';
-  document.getElementById('t-hum').textContent  = humV+'%';
-  document.getElementById('t-lux').textContent  = luxV+' lx';
-  document.getElementById('t-tilt').textContent = tiltV+'°';
-  document.getElementById('t-bd').textContent   = bdV+' ms';
+  // Telemetry (No fake jitter, just real numbers)
+  document.getElementById('t-eye').textContent  = parseFloat(data.eye_temp_celsius).toFixed(1) + '°C';
+  document.getElementById('t-hum').textContent  = Math.round(data.room_humidity_pct) + '%';
+  document.getElementById('t-lux').textContent  = Math.round(data.ambient_lux) + ' lx';
+  document.getElementById('t-tilt').textContent = parseFloat(data.head_tilt_degrees).toFixed(1) + '°';
+  document.getElementById('t-bd').textContent   = Math.round(data.blink_duration_ms) + ' ms';
 
   // Chart
   strainData.shift(); strainData.push(strain);
   blinkData.shift();  blinkData.push(blink);
   chart.update('none');
-}
-
-setInterval(updateLive, 1000);
+  
+  // Dynamic Badge Color Update based on AI Score
+  const sCls = strain >= 60 ? 'red' : strain >= 30 ? 'amber' : 'green';
+  const sTxt = strain >= 60 ? 'CRITICAL' : strain >= 30 ? 'MODERATE' : 'OPTIMAL';
+  const sCol = strain >= 60 ? 'var(--red)' : strain >= 30 ? 'var(--amber)' : 'var(--green)';
+  
+  document.getElementById('gauge-arc').style.stroke = sCol;
+  document.getElementById('strain-num').style.color  = sCol;
+  const badge = document.getElementById('strain-badge');
+  badge.className = 'badge ' + sCls;
+  badge.textContent = sTxt;
+});
 
 // ── Intervention ──
 function startIntervention() {
