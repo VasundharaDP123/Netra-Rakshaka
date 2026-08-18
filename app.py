@@ -96,13 +96,35 @@ def get_active_sensor_data():
 last_print_time = 0
 last_warn_time = 0
 
+wifi_data = None
+last_wifi_time = 0
+
+import json
+import os
+
+@app.route("/sensor_data", methods=["POST"])
+def receive_wifi_data():
+    data = request.json
+    if data:
+        # Write to file to guarantee data is shared across all Python threads/processes
+        try:
+            with open("wifi_cache.json", "w") as f:
+                json.dump({"time": time.time(), "data": data}, f)
+        except Exception:
+            pass
+            
+        print(f"\n[WIFI] Live 5-Sensor Data Received:")
+        print(f"Dist: {data.get('screen_distance_cm')}cm | Gyro: {data.get('head_tilt_degrees')}° | Temp: {data.get('eye_temp_celsius')}C | Lux: {data.get('ambient_lux')} | Blink: {data.get('blink_rate')} BPM")
+        return jsonify({"status": "success"}), 200
+    return jsonify({"status": "error"}), 400
+
 def stream_data():
     global last_print_time, last_warn_time
     while True:
         # 1. Get sensor data (Wi-Fi POST -> USB Serial -> Simulator fallback)
         data = get_active_sensor_data()
         
-        # 2. Classify strain
+        # 3. Classify strain
         strain_level, strain_score = classify_strain(data)
         data["strain_level"] = strain_level
         data["strain_score"] = strain_score
