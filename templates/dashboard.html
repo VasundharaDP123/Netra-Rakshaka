@@ -35,6 +35,7 @@
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14.5V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V7.5A1.5 1.5 0 0 1 5 6h4.5"/></symbol>
   <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M4 20s-.6-8 4.4-12.4C12 4.4 20 4 20 4s.4 8-3.6 11.6C12 19.4 4 20 4 20z"/><path d="M4 20 20 4"/></symbol>
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.6 17.5a9 9 0 1 1 14.8 0"/><path d="M12 12l4-3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
 </defs></svg>
 
 <div class="app">
@@ -137,6 +138,14 @@
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
+              <div id="dw-ring-wrap" style="display:none; position:relative; width:46px; height:46px; margin-right:2px;">
+                <svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg);">
+                  <circle cx="23" cy="23" r="21" fill="none" stroke="#1e2638" stroke-width="4"/>
+                  <circle id="dw-ring" cx="23" cy="23" r="21" fill="none" stroke="#35c98a" stroke-width="4"
+                          stroke-linecap="round" stroke-dasharray="132" stroke-dashoffset="0"
+                          style="transition:stroke-dashoffset 0.9s linear;"/>
+                </svg>
+              </div>
               <div id="dw-timer-display" style="display:none; font-family:'JetBrains Mono'; font-weight:600; font-size:14px; color:#35c98a; margin-right:6px;">25:00</div>
               <button id="btn-dw-start" onclick="startDeepWork(25)" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer;">Start Deep Work</button>
               <button id="btn-dw-extend" onclick="extendDeepWork(25)" style="display:none; background:#1e2738; color:#4d8dff; border:1px solid #304060; border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">+25 Min</button>
@@ -158,10 +167,18 @@
             </div>
             <div>
               <div style="font-size:13px; font-weight:600; color:#e5e9f0;">20-20-20 Baseline Timer</div>
-              <div style="font-size:11px; color:#97a1b2;">Active screen timer · gentle visual rest</div>
+              <div style="font-size:11px; color:#97a1b2;" id="t20-sub">Next rest in 20:00 · gentle visual reminder</div>
             </div>
           </div>
-          <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="position:relative; width:46px; height:46px;">
+              <svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg);">
+                <circle cx="23" cy="23" r="21" fill="none" stroke="#1e2638" stroke-width="4"/>
+                <circle id="t20-ring" cx="23" cy="23" r="21" fill="none" stroke="#4d8dff" stroke-width="4"
+                        stroke-linecap="round" stroke-dasharray="132" stroke-dashoffset="132"
+                        style="transition:stroke-dashoffset 0.9s linear;"/>
+              </svg>
+            </div>
             <div style="font-family:'JetBrains Mono'; font-weight:600; font-size:16px; color:#e5e9f0;" id="t20-timer">20:00</div>
             <span class="status-chip ok" id="t20-status" style="font-size:11px;">Active</span>
           </div>
@@ -483,8 +500,8 @@
           <svg class="ic ic-lg" style="width:28px; height:28px;"><use href="#i-gauge"/></svg>
         </div>
         <div>
-          <h1 style="font-size:24px; font-weight:600; margin:0; color:#fff;">Eye Health Analytics & Behavioral Report</h1>
-          <div style="font-size:13px; color:#97a1b2; margin-top:2px;">Real-Time Telemetry & Persistent SQLite Database Long-Term Health Intelligence</div>
+          <h1 style="font-size:24px; font-weight:600; margin:0; color:#fff;">Eye Health Analytics &amp; Behavioral Report</h1>
+          <div style="font-size:13px; color:#97a1b2; margin-top:2px;" id="an-window-note">Live telemetry &amp; recorded session log</div>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:12px;">
@@ -563,10 +580,47 @@
         </div>
       </div>
 
-      <!-- Panel 2: Clinical & Behavioral Insights -->
+      <!-- Panel 2: Behaviour + Clinical Insights -->
       <div style="background:#131824; padding:24px; border-radius:12px; border:1px solid rgba(255,255,255,0.06);">
-        <h3 style="font-size:16px; font-weight:600; margin:0 0 16px 0; color:#fff;">AI Clinical Recommendations</h3>
-        
+        <h3 style="font-size:16px; font-weight:600; margin:0 0 16px 0; color:#fff;">Break Compliance &amp; Focus Behaviour</h3>
+
+        <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
+          <div id="an-compliance-rate" style="font-size:28px; font-weight:700; color:#35c98a; font-family:'JetBrains Mono';">—</div>
+          <div style="font-size:12px; color:#97a1b2;">of 20-20-20 prompts rested</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:16px;">
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Complied</div>
+            <div id="an-complied" style="font-size:18px; font-weight:600; color:#35c98a; font-family:'JetBrains Mono';">0</div>
+          </div>
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Skipped</div>
+            <div id="an-skipped" style="font-size:18px; font-weight:600; color:#e8a33d; font-family:'JetBrains Mono';">0</div>
+          </div>
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Ignored</div>
+            <div id="an-ignored" style="font-size:18px; font-weight:600; color:#ef5d6f; font-family:'JetBrains Mono';">0</div>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:20px;">
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Deep Work sessions</div>
+            <div id="an-dw-sessions" style="font-size:18px; font-weight:600; color:#4d8dff; font-family:'JetBrains Mono';">0</div>
+          </div>
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Focus chain</div>
+            <div id="an-dw-chain" style="font-size:18px; font-weight:600; color:#4d8dff; font-family:'JetBrains Mono';">0 min</div>
+          </div>
+          <div style="background:#192132; padding:10px 12px; border-radius:8px;">
+            <div style="font-size:11px; color:#6a7585;">Breaks held back</div>
+            <div id="an-dw-suppressed" style="font-size:18px; font-weight:600; color:#e8a33d; font-family:'JetBrains Mono';">0</div>
+          </div>
+        </div>
+
+        <h3 style="font-size:14px; font-weight:600; margin:0 0 12px 0; color:#fff; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">Clinical Recommendations</h3>
+
         <div style="display:flex; flex-direction:column; gap:12px;">
           <div style="background:#192132; padding:12px 16px; border-radius:8px; border-left:3px solid #35c98a;">
             <div style="font-size:12px; font-weight:600; color:#35c98a;">Blink Rate Preservation</div>
@@ -654,7 +708,12 @@
     </p>
     
     <!-- Huge Countdown Timer -->
-    <div style="font-size:72px; font-weight:800; font-family:'JetBrains Mono'; color:#35c98a; margin-bottom:28px; text-shadow:0 0 30px rgba(53,201,138,0.3);" id="m20-timer">20</div>
+    <div style="font-size:72px; font-weight:800; font-family:'JetBrains Mono'; color:#35c98a; margin-bottom:12px; text-shadow:0 0 30px rgba(53,201,138,0.3);" id="m20-timer">20</div>
+
+    <!-- Shown only while Deep Work is running, so the silence promise stays honest -->
+    <div id="m20-dw-note" style="display:none; margin:0 auto 20px; max-width:560px; padding:10px 14px; border-radius:8px; background:rgba(77,141,255,0.12); border:1px solid rgba(77,141,255,0.35); color:#8fb6ff; font-size:12px;">
+      Deep Work is active — this is a silent visual reminder. Your intrusive alerts stay suppressed.
+    </div>
 
     <!-- 3 Step Exercises -->
     <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom:32px; text-align:left;">
@@ -687,6 +746,6 @@
   </div>
 </div>
 
-<script src="/static/js/dashboard.js?v=7"></script>
+<script src="/static/js/dashboard.js?v=8"></script>
 </body>
 </html>

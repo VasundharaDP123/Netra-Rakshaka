@@ -249,11 +249,18 @@ if __name__ == "__main__":
     # Start background stream
     socketio.start_background_task(target=stream_data)
     
-    print("\n==========================================================================================")
-    print("  Netra Rakshaka Server running on http://127.0.0.1:5000")
-    print("  Streaming live sensor telemetry line by line below...")
-    print("==========================================================================================\n")
-    
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    ports_to_try = [5000, 5001, 5002, 5003]
+    for p in ports_to_try:
+        try:
+            print("\n==========================================================================================")
+            print(f"  Netra Rakshaka Server running on http://127.0.0.1:{p}")
+            print("  Streaming live sensor telemetry line by line below...")
+            print("==========================================================================================\n")
+            
+            socketio.run(app, host="0.0.0.0", port=p, debug=False, use_reloader=False)
+            break
+        except OSError:
+            print(f"[PORT WARN] Port {p} is currently occupied by a background process. Trying fallback port...")
+            continue
 
 

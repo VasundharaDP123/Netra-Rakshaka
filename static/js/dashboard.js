@@ -18,6 +18,61 @@ let packetCount = 0;     // sensor_update packets received
 let breakCount = 0;
 let breakActive = false;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Feature state
+
+   Everything the render loop or a click handler can reach is declared here,
+   ahead of the loop itself. `let`/`const` are hoisted but not initialised, so a
+   binding declared further down the file throws "cannot access before
+   initialisation" the moment the loop touches it — and because the loop is
+   started at the top level, that error aborts the rest of the script, leaving
+   every listener below it unregistered.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+let lastFrame = null;             // most recent telemetry frame, shared by all engines
+
+/* — 20-20-20 baseline timer — */
+let t20Interval = 20 * 60;        // seconds per cycle (Configuration can change this)
+let t20Left = t20Interval;
+let t20Paused = false;            // true while no active screen use is detected
+let t20ModalOpen = false;
+let t20ModalIv = null;
+let t20Interacted = false;        // did the user act on the prompt, or ignore it?
+const t20Outcomes = { complied: 0, skipped: 0, ignored: 0 };
+
+/* — Deep Work — */
+let deepWorkActive = false;
+let deepWorkLeft = 0;
+let deepWorkTotal = 0;            // for the progress ring
+let deepWorkTimerIv = null;
+let deepWorkEpisodes = 0;         // Critical episodes during the session (not seconds)
+let inCriticalEpisode = false;
+let criticalSecInDeepWork = 0;
+let deepWorkSessions = 0;
+let chainMinutes = 0;             // focus minutes since the last complied rest
+let lastDeepWorkEndAt = 0;
+let suppressedBreaks = 0;
+
+/* — Deep Work auto-suggestion — */
+let steadyFocusSamples = 0;
+let deepWorkAutoSuggested = false;
+
+/* — Health analytics — */
+let currentAnalyticsWindow = 'daily';
+const liveSessionBuffer = [];
+const MAX_LIVE_BUFFER = 1500;     // ~5 min of 5 Hz telemetry
+
+/* — Configuration (persisted locally; the backend routes are optional) — */
+const SETTINGS_KEY = 'nr.settings.v1';
+const DEFAULT_SETTINGS = {
+  sensitivity_mode: 'Normal',
+  cooldown_sec: 50,
+  min_distance_threshold: 20,
+  min_bpm_threshold: 8,
+  sound_alerts: 1
+};
+let settings = { ...DEFAULT_SETTINGS };
+
 /* ── Palette handles (resolved once; tokens are static apart from --status) ── */
 const C = {
   accent: '#4d8dff', green: '#35c98a', amber: '#e8a33d', red: '#ef5d6f',
@@ -459,6 +514,7 @@ const BREAK_COOLDOWN_MS = 50000; // mirrors the cooldown in screen_control.py
 function render() {
   const f = nextFrame();
   sampleCount++;
+  lastFrame = f;
 
   const st = STATUS[f.level] || STATUS.Safe;
   document.body.dataset.state = st.key;
@@ -598,13 +654,15 @@ function render() {
   }
   evaluateBreaches(f);
   checkDeepWorkAutoSuggest(f);
+  tick202020(f);
+  tickDeepWork(f);
 
   /* Sustained Critical enforces a break, the same rule screen_control.py uses.
      Packets from the backend simulator are excluded: with no spectacles attached
      it reports blink_rate 0, which the classifier pins at Critical for ever. */
   const enforceable = f.source !== 'SIMULATOR';
   critStreak = (f.level === 'Critical' && enforceable) ? critStreak + 1 : 0;
-  if (critStreak >= CRIT_CONFIRM && !breakActive && Date.now() - lastBreakAt > BREAK_COOLDOWN_MS) {
+  if (critStreak >= CRIT_CONFIRM && !breakActive && Date.now() - lastBreakAt > settings.cooldown_sec * 1000) {
     critStreak = 0;
     startIntervention();
   }
@@ -640,18 +698,27 @@ function updateHealth(f) {
     }
   });
 }
-setInterval(render, 1000);
-render();
-
 /* ══════════════════════════════════════════════════════════════════════════
-   Enforced break modal
+   Enforced break modal — the "intrusive" intervention Deep Work silences
    ══════════════════════════════════════════════════════════════════════════ */
 function startIntervention() {
   if (breakActive) return;
+
+  /* Deep Work's promise: intrusive alerts stay quiet. The full-screen takeover is
+     suppressed and replaced by the breakthrough banner, which is visual only.
+     (Physical screen dimming is screen_control.py's job and is untouched.) */
+  if (deepWorkActive) {
+    suppressedBreaks++;
+    lastBreakAt = Date.now();
+    showBreakthrough(true);
+    logEvent('warn', 'Enforced break suppressed', 'Deep Work active · shown as a visual breakthrough instead');
+    return;
+  }
+
   breakActive = true;
   breakCount++;
   lastBreakAt = Date.now();
-  if (typeof reset202020Timer === 'function') reset202020Timer(); // Reset 20-min clock when stronger alert fires
+  reset202020Timer('enforced break');    // a stronger alert already rested the eyes
   logEvent('crit', 'Enforced break started', '20 s · display brightness reduced to 20%');
 
   const overlay = $('overlay'), numEl = $('ov-num'), prog = $('ov-prog');
@@ -679,575 +746,698 @@ function startIntervention() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Health Analytics & Configuration Settings Modals Controller
-   (Live Real-Time Telemetry Engine)
+   Live telemetry buffer — feeds Health Analytics
    ══════════════════════════════════════════════════════════════════════════ */
-let currentAnalyticsWindow = 'daily';
-const liveSessionBuffer = [];
-const MAX_LIVE_BUFFER = 1200; // Stores last ~5 minutes of live 5Hz sensor updates
-
-// Maintain active live sensor telemetry buffer
 function recordLiveTelemetry(d) {
   if (!d) return;
   liveSessionBuffer.push({
     t: Date.now(),
     bpm: typeof d.blink_rate === 'number' ? d.blink_rate : 0,
     dist: typeof d.screen_distance_cm === 'number' ? d.screen_distance_cm : 0,
-    temp: typeof d.eye_temp_celsius === 'number' ? d.eye_temp_celsius : 0,
     tilt: typeof d.head_tilt_degrees === 'number' ? d.head_tilt_degrees : 0,
     lux: typeof d.ambient_lux === 'number' ? d.ambient_lux : 0,
-    strain_level: d.strain_level || 'Safe',
-    strain_score: typeof d.strain_score === 'number' ? d.strain_score : 0
+    level: d.strain_level || 'Safe',
+    score: typeof d.strain_score === 'number' ? d.strain_score : 0
   });
   if (liveSessionBuffer.length > MAX_LIVE_BUFFER) liveSessionBuffer.shift();
 
-  // If Analytics Modal is open, update numbers LIVE on every single incoming sensor packet!
-  if ($('analytics-modal') && $('analytics-modal').style.display !== 'none') {
-    renderLiveAnalytics(currentAnalyticsWindow);
+  // keep an open analytics page live, but repaint at most once a second
+  if (analyticsOpen && Date.now() - lastAnalyticsPaint > 1000) renderAnalytics(currentAnalyticsWindow);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Configuration — persisted locally, applied to the running console
+   ══════════════════════════════════════════════════════════════════════════ */
+const SENSITIVITY_INTERVAL_MIN = { Normal: 20, Sensitive: 15, Strict: 12 };
+
+function applySettings(s, announce = false) {
+  settings = { ...DEFAULT_SETTINGS, ...s };
+
+  // sensitivity decides how often the baseline rest cycle comes round
+  const mins = SENSITIVITY_INTERVAL_MIN[settings.sensitivity_mode] || 20;
+  const changed = t20Interval !== mins * 60;
+  t20Interval = mins * 60;
+  if (changed) { t20Left = Math.min(t20Left, t20Interval); update202020UI(); }
+
+  // thresholds feed the alert rules and the KPI chips
+  breaches.blink.trip = (f) => f.blink < settings.min_bpm_threshold;
+  breaches.blink.clear = (f) => f.blink >= settings.min_bpm_threshold + 2;
+  breaches.blink.enter = `Blink rate below ${settings.min_bpm_threshold} bpm`;
+  breaches.dist.trip = (f) => f.dist < settings.min_distance_threshold;
+  breaches.dist.clear = (f) => f.dist >= settings.min_distance_threshold + 3;
+  breaches.dist.enter = `Viewing distance below ${settings.min_distance_threshold} cm`;
+
+  if (announce) {
+    logEvent('ok', 'Configuration applied',
+      `${settings.sensitivity_mode} · rest every ${mins} min · dist ${settings.min_distance_threshold} cm · ` +
+      `blink ${settings.min_bpm_threshold} bpm · cooldown ${settings.cooldown_sec}s · ` +
+      `sound ${settings.sound_alerts ? 'on' : 'off'}`);
   }
 }
 
-function renderLiveAnalytics(windowType = 'daily') {
-  currentAnalyticsWindow = windowType;
-  if ($('an-tab-daily')) {
-    $('an-tab-daily').style.background = windowType === 'daily' ? 'var(--accent)' : '#1e2638';
-    $('an-tab-daily').style.color = windowType === 'daily' ? '#fff' : '#97a1b2';
-  }
-  if ($('an-tab-weekly')) {
-    $('an-tab-weekly').style.background = windowType === 'weekly' ? 'var(--accent)' : '#1e2638';
-    $('an-tab-weekly').style.color = windowType === 'weekly' ? '#fff' : '#97a1b2';
-  }
-
-  const updateUI = (screenTime, avgBpm, distComp, breaksTaken, safePct, modPct, critPct) => {
-    if ($('an-screen-time')) $('an-screen-time').textContent = screenTime + ' min';
-    if ($('an-avg-bpm')) $('an-avg-bpm').textContent = avgBpm + ' bpm';
-    if ($('an-dist-comp')) $('an-dist-comp').textContent = distComp + '%';
-    if ($('an-breaks')) $('an-breaks').textContent = breaksTaken;
-
-    if ($('bar-safe')) $('bar-safe').style.width = safePct + '%';
-    if ($('bar-mod')) $('bar-mod').style.width = modPct + '%';
-    if ($('bar-crit')) $('bar-crit').style.width = critPct + '%';
-
-    if ($('pct-safe')) $('pct-safe').textContent = safePct;
-    if ($('pct-mod')) $('pct-mod').textContent = modPct;
-    if ($('pct-crit')) $('pct-crit').textContent = critPct;
-  };
-
-  // 1. Compute from live session buffer first if available
-  let liveBpm = 0, liveDistComp = 100, liveScreenTime = ((Date.now() - startTime) / 60000).toFixed(1);
-  let liveSafe = 100, liveMod = 0, liveCrit = 0;
-
-  if (liveSessionBuffer.length > 0) {
-    const buf = liveSessionBuffer;
-    const sumBpm = buf.reduce((a, b) => a + (b.bpm || 0), 0);
-    liveBpm = (sumBpm / buf.length).toFixed(1);
-
-    const compDist = buf.filter(b => b.dist >= 20).length;
-    liveDistComp = ((compDist / buf.length) * 100).toFixed(1);
-
-    const safeCount = buf.filter(b => b.strain_level === 'Safe').length;
-    const modCount = buf.filter(b => b.strain_level === 'Moderate').length;
-    const critCount = buf.filter(b => b.strain_level === 'Critical').length;
-
-    liveSafe = ((safeCount / buf.length) * 100).toFixed(1);
-    liveMod = ((modCount / buf.length) * 100).toFixed(1);
-    liveCrit = ((critCount / buf.length) * 100).toFixed(1);
-  }
-
-  // Render live buffer immediately
-  updateUI(liveScreenTime, liveBpm, liveDistComp, breakCount, liveSafe, liveMod, liveCrit);
-
-  // 2. Fetch DB persistent analytics asynchronously
-  fetch(`/api/analytics?window=${windowType}`)
-    .then(r => r.json())
-    .then(dbData => {
-      if (liveSessionBuffer.length === 0 && dbData) {
-        const avgBpm = dbData.average_bpm || 0;
-        const distComp = dbData.distance_compliance_pct || 100;
-        const screenTime = dbData.total_screen_time_min || 0;
-        const breaksTaken = dbData.total_breaks_taken || 0;
-        const safePct = dbData.strain_breakdown ? dbData.strain_breakdown.safe_pct : 100;
-        const modPct = dbData.strain_breakdown ? dbData.strain_breakdown.moderate_pct : 0;
-        const critPct = dbData.strain_breakdown ? dbData.strain_breakdown.critical_pct : 0;
-        updateUI(screenTime, avgBpm, distComp, breaksTaken, safePct, modPct, critPct);
-      }
-    })
-    .catch(() => {});
+function fillSettingsForm() {
+  if ($('cfg-sensitivity')) $('cfg-sensitivity').value = settings.sensitivity_mode;
+  if ($('cfg-cooldown')) $('cfg-cooldown').value = settings.cooldown_sec;
+  if ($('cfg-min-dist')) $('cfg-min-dist').value = settings.min_distance_threshold;
+  if ($('cfg-min-bpm')) $('cfg-min-bpm').value = settings.min_bpm_threshold;
+  if ($('cfg-sound')) $('cfg-sound').value = String(settings.sound_alerts);
 }
 
 function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) applySettings(JSON.parse(raw));
+  } catch (e) { /* corrupt or unavailable storage: defaults stand */ }
+  fillSettingsForm();
+
+  // If the backend ever exposes /api/settings it wins; until then this 404s quietly.
   fetch('/api/settings')
-    .then(r => r.json())
-    .then(data => {
-      $('cfg-sensitivity').value = data.sensitivity_mode || 'Normal';
-      $('cfg-cooldown').value = data.cooldown_sec || 50;
-      $('cfg-min-dist').value = data.min_distance_threshold || 20;
-      $('cfg-min-bpm').value = data.min_bpm_threshold || 8;
-      $('cfg-sound').value = String(data.sound_alerts !== undefined ? data.sound_alerts : 1);
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && typeof d === 'object') { applySettings(d); fillSettingsForm(); } })
+    .catch(() => {});
+}
+
+function saveSettings(e) {
+  if (e) e.preventDefault();
+  const payload = {
+    sensitivity_mode: $('cfg-sensitivity').value,
+    cooldown_sec: clamp(parseInt($('cfg-cooldown').value, 10) || 50, 20, 180),
+    min_distance_threshold: clamp(parseInt($('cfg-min-dist').value, 10) || 20, 10, 40),
+    min_bpm_threshold: clamp(parseInt($('cfg-min-bpm').value, 10) || 8, 4, 15),
+    sound_alerts: parseInt($('cfg-sound').value, 10) ? 1 : 0
+  };
+  applySettings(payload, true);
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload)); } catch (e2) {}
+
+  fetch('/api/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  }).catch(() => {});
+
+  closeSettingsModal();                       // closes whether or not a backend answered
+  showDashboardNotification('Configuration saved', 'Thresholds applied to the running session.', 'ok');
+}
+
+function openSettingsModal() {
+  const m = $('settings-modal');
+  if (!m) return;
+  fillSettingsForm();
+  m.style.display = 'flex';
+}
+function closeSettingsModal() {
+  const m = $('settings-modal');
+  if (m) m.style.display = 'none';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Health Analytics — live session buffer widened by the CSV session log
+   ══════════════════════════════════════════════════════════════════════════ */
+let analyticsOpen = false;
+let lastAnalyticsPaint = 0;
+
+const setText = (id, v) => { if ($(id)) $(id).textContent = v; };
+
+function paintDistribution(safePct, modPct, critPct) {
+  if ($('bar-safe')) $('bar-safe').style.width = safePct + '%';
+  if ($('bar-mod')) $('bar-mod').style.width = modPct + '%';
+  if ($('bar-crit')) $('bar-crit').style.width = critPct + '%';
+  setText('pct-safe', safePct.toFixed(1));
+  setText('pct-mod', modPct.toFixed(1));
+  setText('pct-crit', critPct.toFixed(1));
+}
+
+function summarise(rows, get) {
+  const n = rows.length;
+  if (!n) return null;
+  const bpm = rows.reduce((a, r) => a + get.bpm(r), 0) / n;
+  const compliant = rows.filter(r => get.dist(r) >= settings.min_distance_threshold).length;
+  const active = rows.filter(r => { const d = get.dist(r); return d > 0 && d < ACTIVE_SCREEN_CM; }).length;
+  const share = (name) => rows.filter(r => get.level(r) === name).length / n * 100;
+  return {
+    samples: n,
+    avgBpm: bpm,
+    distCompliance: compliant / n * 100,
+    activeMin: active * 0.2 / 60,             // telemetry streams at 5 Hz → 0.2 s per row
+    safe: share('Safe'), mod: share('Moderate'), crit: share('Critical')
+  };
+}
+
+function paintBehaviour() {
+  const total = t20Outcomes.complied + t20Outcomes.skipped + t20Outcomes.ignored;
+  const rate = total ? (t20Outcomes.complied / total * 100) : 0;
+  setText('an-compliance-rate', total ? rate.toFixed(0) + '%' : '—');
+  setText('an-complied', t20Outcomes.complied);
+  setText('an-skipped', t20Outcomes.skipped);
+  setText('an-ignored', t20Outcomes.ignored);
+  setText('an-dw-sessions', deepWorkSessions);
+  setText('an-dw-chain', chainMinutes + ' min');
+  setText('an-dw-suppressed', suppressedBreaks);
+}
+
+function renderAnalytics(windowType = 'daily') {
+  currentAnalyticsWindow = windowType;
+  lastAnalyticsPaint = Date.now();
+
+  ['daily', 'weekly'].forEach(w => {
+    const tab = $('an-tab-' + w);
+    if (!tab) return;
+    const on_ = w === windowType;
+    tab.style.background = on_ ? 'var(--accent)' : 'transparent';
+    tab.style.color = on_ ? '#fff' : '#97a1b2';
+  });
+
+  paintBehaviour();
+
+  /* 1. Paint the live session immediately so the page is never blank. */
+  const live = summarise(liveSessionBuffer, { bpm: r => r.bpm, dist: r => r.dist, level: r => r.level });
+  if (live) {
+    setText('an-screen-time', live.activeMin.toFixed(1) + ' min');
+    setText('an-avg-bpm', live.avgBpm.toFixed(1) + ' bpm');
+    setText('an-dist-comp', live.distCompliance.toFixed(1) + '%');
+    setText('an-breaks', breakCount);
+    paintDistribution(live.safe, live.mod, live.crit);
+    setText('an-window-note', `live session · ${live.samples.toLocaleString()} telemetry samples`);
+  } else {
+    setText('an-window-note', 'no live telemetry yet · reading the session log');
+  }
+
+  /* 2. Then widen to the persisted session log for the requested window. */
+  const limit = windowType === 'weekly' ? 20000 : 8000;
+  const cutoff = Date.now() - (windowType === 'weekly' ? 7 : 1) * 24 * 3600 * 1000;
+
+  fetch(`/api/history?limit=${limit}`)
+    .then(r => r.ok ? r.json() : [])
+    .then(rows => {
+      if (!Array.isArray(rows) || !rows.length) return;
+      const windowRows = rows.filter(r => {
+        const t = Date.parse(String(r.timestamp).replace(' ', 'T'));
+        return isFinite(t) ? t >= cutoff : true;
+      });
+      const hist = summarise(windowRows, {
+        bpm: r => Number(r.blink_rate) || 0,
+        dist: r => Number(r.screen_distance_cm) || 0,
+        level: r => r.strain_level
+      });
+      if (!hist) return;
+      setText('an-screen-time', hist.activeMin.toFixed(1) + ' min');
+      setText('an-avg-bpm', hist.avgBpm.toFixed(1) + ' bpm');
+      setText('an-dist-comp', hist.distCompliance.toFixed(1) + '%');
+      setText('an-breaks', breakCount);
+      paintDistribution(hist.safe, hist.mod, hist.crit);
+      setText('an-window-note',
+        `${windowType === 'weekly' ? 'last 7 days' : 'last 24 hours'} · ` +
+        `${hist.samples.toLocaleString()} logged samples · breaks counted for this session`);
+    })
+    .catch(() => {});
+
+  /* 3. A richer backend endpoint is used only if it exists. */
+  fetch(`/api/analytics?window=${windowType}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d) return;
+      if (d.total_screen_time_min != null) setText('an-screen-time', Number(d.total_screen_time_min).toFixed(1) + ' min');
+      if (d.average_bpm != null) setText('an-avg-bpm', Number(d.average_bpm).toFixed(1) + ' bpm');
+      if (d.distance_compliance_pct != null) setText('an-dist-comp', Number(d.distance_compliance_pct).toFixed(1) + '%');
+      if (d.total_breaks_taken != null) setText('an-breaks', d.total_breaks_taken);
+      if (d.strain_breakdown) {
+        paintDistribution(Number(d.strain_breakdown.safe_pct) || 0,
+                          Number(d.strain_breakdown.moderate_pct) || 0,
+                          Number(d.strain_breakdown.critical_pct) || 0);
+      }
     })
     .catch(() => {});
 }
 
 function openAnalyticsModal() {
-  const modal = $('analytics-modal');
-  if (modal) {
-    modal.style.display = 'block';
-    renderLiveAnalytics('daily');
-  }
+  const m = $('analytics-modal');
+  if (!m) return;
+  analyticsOpen = true;
+  m.style.display = 'block';
+  renderAnalytics(currentAnalyticsWindow);
 }
 function closeAnalyticsModal() {
-  const modal = $('analytics-modal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-}
-function openSettingsModal() {
-  const modal = $('settings-modal');
-  if (modal) {
-    modal.style.display = 'flex';
-    loadSettings();
-  }
-}
-function closeSettingsModal() {
-  const modal = $('settings-modal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-}
-
-window.openAnalyticsModal = openAnalyticsModal;
-window.closeAnalyticsModal = closeAnalyticsModal;
-window.openSettingsModal = openSettingsModal;
-window.closeSettingsModal = closeSettingsModal;
-
-if ($('nav-item-analytics')) {
-  $('nav-item-analytics').addEventListener('click', openAnalyticsModal);
-}
-if ($('an-close')) {
-  $('an-close').addEventListener('click', closeAnalyticsModal);
-}
-if ($('an-tab-daily')) {
-  $('an-tab-daily').addEventListener('click', () => renderLiveAnalytics('daily'));
-}
-if ($('an-tab-weekly')) {
-  $('an-tab-weekly').addEventListener('click', () => renderLiveAnalytics('weekly'));
-}
-
-if ($('nav-item-settings')) {
-  $('nav-item-settings').addEventListener('click', openSettingsModal);
-}
-if ($('set-close')) {
-  $('set-close').addEventListener('click', closeSettingsModal);
-}
-
-if ($('cfg-form')) {
-  $('cfg-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const payload = {
-      sensitivity_mode: $('cfg-sensitivity').value,
-      cooldown_sec: parseInt($('cfg-cooldown').value),
-      min_distance_threshold: parseInt($('cfg-min-dist').value),
-      min_bpm_threshold: parseInt($('cfg-min-bpm').value),
-      sound_alerts: parseInt($('cfg-sound').value)
-    };
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(r => r.json()).then(() => {
-      $('settings-modal').style.display = 'none';
-      logEvent('ok', 'Configuration updated', `Mode: ${payload.sensitivity_mode} · Cooldown: ${payload.cooldown_sec}s`);
-    });
-  });
+  const m = $('analytics-modal');
+  if (m) m.style.display = 'none';
+  analyticsOpen = false;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   20-20-20 Baseline Countdown Timer Engine
-   ══════════════════════════════════════════════════════════════════════════ */
-let t20SecLeft = 1200; // 20 minutes baseline
-let t20Active = true;
-let t20ModalTimer = null;
+   20-20-20 baseline timer
 
-function reset202020Timer() {
-  t20SecLeft = 1200;
-  if ($('t20-timer')) {
-    const m = Math.floor(t20SecLeft / 60);
-    const s = t20SecLeft % 60;
-    $('t20-timer').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+   Counts down only while the wearer is actually at a screen, is reset by any
+   stronger intervention, and is deliberately exempt from Deep Work suppression:
+   it is a visual reminder, not an interruption.
+   ══════════════════════════════════════════════════════════════════════════ */
+const T20_RING = 132;                     // circumference of the r=21 progress ring
+const ACTIVE_SCREEN_CM = 60;              // closer than this counts as active screen use
+let t20SeenLevel = null;
+
+const mmss = (sec) => {
+  const s = Math.max(0, Math.round(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
+function update202020UI() {
+  setText('t20-timer', mmss(t20Left));
+  const ring = $('t20-ring');
+  if (ring) ring.style.strokeDashoffset = T20_RING * (1 - (t20Interval - t20Left) / t20Interval);
+
+  const chip = $('t20-status');
+  if (chip) {
+    const [label, cls] = t20ModalOpen ? ['Resting', 'ok']
+      : t20Paused ? ['Paused', 'warn']
+      : t20Left <= 60 ? ['Due soon', 'warn']
+      : ['Active', 'ok'];
+    chip.className = 'status-chip ' + cls;
+    chip.textContent = label;
   }
+  setText('t20-sub', t20ModalOpen ? 'Visual rest in progress'
+    : t20Paused ? 'Paused · no active screen use detected'
+    : `Next rest in ${mmss(t20Left)} · gentle visual reminder`);
 }
 
-setInterval(() => {
-  // Only countdown if active screen use is detected (e.g. distance < 60cm or streaming)
-  if (t20SecLeft > 0) {
-    t20SecLeft--;
-    if ($('t20-timer')) {
-      const m = Math.floor(t20SecLeft / 60);
-      const s = t20SecLeft % 60;
-      $('t20-timer').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    }
-  } else if (t20SecLeft === 0) {
-    t20SecLeft = -1; // Trigger once
-    trigger202020Modal();
+function reset202020Timer(reason) {
+  t20Left = t20Interval;
+  update202020UI();
+  if (reason) logEvent('info', '20-20-20 cycle reset', `${reason} · next rest in ${mmss(t20Left)}`);
+}
+
+function tick202020(f) {
+  // A stronger alert has already rested the eyes: restart the clock rather than
+  // stacking a second prompt on top of it.
+  if (f.level === 'Critical' && t20SeenLevel !== 'Critical') reset202020Timer('critical strain alert');
+  t20SeenLevel = f.level;
+
+  if (t20ModalOpen) { update202020UI(); return; }
+
+  const activeScreenUse = f.dist > 0 && f.dist < ACTIVE_SCREEN_CM;
+  t20Paused = !activeScreenUse;
+  if (activeScreenUse) {
+    t20Left--;
+    if (t20Left <= 0) { trigger202020(); return; }
   }
-}, 1000);
+  update202020UI();
+}
 
-function trigger202020Modal() {
+function trigger202020() {
   const modal = $('modal-202020');
-  const timerEl = $('m20-timer');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  
-  let sec = 20;
-  timerEl.textContent = sec;
-  logEvent('info', '20-20-20 Reminder', 'Look at an object 20 feet away for 20 seconds');
+  if (!modal || t20ModalOpen) return;
 
-  if (t20ModalTimer) clearInterval(t20ModalTimer);
-  t20ModalTimer = setInterval(() => {
+  t20ModalOpen = true;
+  t20Interacted = false;
+  t20Left = t20Interval;
+
+  // Deep Work keeps its promise: the reminder appears, silently, and says so.
+  const note = $('m20-dw-note');
+  if (note) note.style.display = deepWorkActive ? 'block' : 'none';
+  if (!deepWorkActive) playAudioBeep();
+
+  modal.style.display = 'flex';
+  update202020UI();
+  logEvent('info', '20-20-20 rest prompted',
+    deepWorkActive ? 'visual-only reminder · Deep Work alerts stay silenced'
+                   : 'look 20 feet away for 20 seconds');
+
+  let sec = 20;
+  setText('m20-timer', sec);
+  if (t20ModalIv) clearInterval(t20ModalIv);
+  t20ModalIv = setInterval(() => {
     sec--;
-    timerEl.textContent = Math.max(0, sec);
-    if (sec <= 0) {
-      clearInterval(t20ModalTimer);
-      // Auto-log as complied if not closed
-      recordCompliance('complied');
-      modal.style.display = 'none';
-      reset202020Timer();
-    }
+    setText('m20-timer', Math.max(0, sec));
+    if (sec <= 0) close202020(t20Interacted ? 'complied' : 'ignored');
   }, 1000);
 }
 
-function recordCompliance(action) {
-  fetch('/api/compliance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, event_type: '20-20-20' })
-  }).then(r => r.json()).then(() => {
-    logEvent(action === 'complied' ? 'ok' : 'warn', 
-             `20-20-20 Compliance → ${action.toUpperCase()}`, 
-             action === 'complied' ? 'User rested eyes for 20s' : 'User skipped break');
-  }).catch(() => {});
+function close202020(outcome) {
+  if (t20ModalIv) { clearInterval(t20ModalIv); t20ModalIv = null; }
+  const modal = $('modal-202020');
+  if (modal) modal.style.display = 'none';
+  t20ModalOpen = false;
+  recordCompliance(outcome);
+  reset202020Timer();
 }
 
-if ($('btn-202020-comply')) {
-  $('btn-202020-comply').addEventListener('click', () => {
-    if (t20ModalTimer) clearInterval(t20ModalTimer);
-    recordCompliance('complied');
-    $('modal-202020').style.display = 'none';
-    reset202020Timer();
-  });
-}
-if ($('btn-202020-skip')) {
-  $('btn-202020-skip').addEventListener('click', () => {
-    if (t20ModalTimer) clearInterval(t20ModalTimer);
-    recordCompliance('skipped');
-    $('modal-202020').style.display = 'none';
-    reset202020Timer();
-  });
-}
-if ($('btn-202020-dw')) {
-  $('btn-202020-dw').addEventListener('click', () => {
-    if (t20ModalTimer) clearInterval(t20ModalTimer);
-    recordCompliance('skipped');
-    $('modal-202020').style.display = 'none';
-    reset202020Timer();
-    startDeepWork(25);
-  });
+/* Compliance is the behavioural signal the forecasting work wants: complied =
+   the user confirmed the rest, skipped = dismissed on purpose, ignored = the
+   prompt ran its full 20 s untouched. */
+function recordCompliance(outcome) {
+  if (!(outcome in t20Outcomes)) return;
+  t20Outcomes[outcome]++;
+  if (outcome === 'complied') chainMinutes = 0;      // a real rest breaks the focus chain
+
+  try { localStorage.setItem('nr.compliance.v1', JSON.stringify(t20Outcomes)); } catch (e) {}
+
+  logEvent(outcome === 'complied' ? 'ok' : 'warn',
+    `20-20-20 ${outcome}`,
+    outcome === 'complied' ? 'user confirmed a 20 s distance rest'
+      : outcome === 'skipped' ? 'prompt dismissed without resting'
+      : 'prompt ran its full 20 s with no interaction');
+
+  fetch('/api/compliance', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: outcome, event_type: '20-20-20', ts: Date.now() })
+  }).catch(() => {});
+
+  if (analyticsOpen) renderAnalytics(currentAnalyticsWindow);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Deep Work Mode (25-Minute Focus Session Engine & Edge Case Protections)
+   Deep Work Mode
    ══════════════════════════════════════════════════════════════════════════ */
-let deepWorkActive = false;
-let deepWorkSecLeft = 1500; // 25 minutes
-let deepWorkAlertsCount = 0;
-let deepWorkTimerIv = null;
-
-// Edge Case 2 & 3 state trackers
-let criticalSecInDeepWork = 0;
-let consecutiveDeepWorkMinutes = 0;
+const DW_RING = 132;
+const DW_CRITICAL_AUTOEND_SEC = 120;   // sustained Critical that outlasts the override
+const DW_CHAIN_WARN_MIN = 50;          // focus minutes without a rest before we flag it
 
 function updateDeepWorkUI() {
+  const ring = $('dw-ring');
   if (deepWorkActive) {
-    const m = Math.floor(deepWorkSecLeft / 60);
-    const s = deepWorkSecLeft % 60;
-    $('dw-timer-display').style.display = 'inline-block';
-    $('dw-timer-display').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    $('btn-dw-start').style.display = 'none';
-    $('btn-dw-extend').style.display = 'inline-block';
-    $('btn-dw-stop').style.display = 'inline-block';
-    $('dw-title').textContent = 'Deep Work Mode: ACTIVE';
-    $('dw-title').style.color = '#35c98a';
-    $('dw-desc').textContent = `${m} min remaining · intrusive screen alerts silenced`;
+    setText('dw-timer-display', mmss(deepWorkLeft));
+    if ($('dw-timer-display')) $('dw-timer-display').style.display = 'inline-block';
+    if ($('dw-ring-wrap')) $('dw-ring-wrap').style.display = 'block';
+    if (ring) ring.style.strokeDashoffset = DW_RING * (1 - deepWorkLeft / Math.max(1, deepWorkTotal));
+    if ($('btn-dw-start')) $('btn-dw-start').style.display = 'none';
+    if ($('btn-dw-extend')) $('btn-dw-extend').style.display = 'inline-block';
+    if ($('btn-dw-stop')) $('btn-dw-stop').style.display = 'inline-block';
+    setText('dw-title', 'Deep Work Mode: Active');
+    if ($('dw-title')) $('dw-title').style.color = '#35c98a';
+    setText('dw-desc', `${mmss(deepWorkLeft)} remaining · intrusive alerts silenced`);
   } else {
-    $('dw-timer-display').style.display = 'none';
-    $('btn-dw-start').style.display = 'inline-block';
-    $('btn-dw-extend').style.display = 'none';
-    $('btn-dw-stop').style.display = 'none';
-    $('dw-title').textContent = 'Deep Work Mode';
-    $('dw-title').style.color = '#e5e9f0';
-    $('dw-desc').textContent = '25-min focus session · silences intrusive alerts';
-    if ($('dw-breakthrough-banner')) $('dw-breakthrough-banner').style.display = 'none';
-    if ($('dw-card')) $('dw-card').style.borderColor = 'rgba(255,255,255,0.08)';
+    if ($('dw-timer-display')) $('dw-timer-display').style.display = 'none';
+    if ($('dw-ring-wrap')) $('dw-ring-wrap').style.display = 'none';
+    if ($('btn-dw-start')) $('btn-dw-start').style.display = 'inline-block';
+    if ($('btn-dw-extend')) $('btn-dw-extend').style.display = 'none';
+    if ($('btn-dw-stop')) $('btn-dw-stop').style.display = 'none';
+    setText('dw-title', 'Deep Work Mode');
+    if ($('dw-title')) $('dw-title').style.color = '#e5e9f0';
+    setText('dw-desc', '25-min focus session · silences intrusive alerts');
+    showBreakthrough(false);
   }
 }
 
-function startDeepWork(durationMin = 25) {
-  // Allow Deep Work Mode activation anytime; log warning if starting under Critical strain
-  if (lastLevel === 'Critical' || (livePacket && livePacket.strain_level === 'Critical')) {
-    logEvent('warn', 'Deep Work Started under High Strain', 'Focus mode activated while strain is elevated');
-    showDashboardNotification("⚠️ High Strain Focus Mode", "Deep Work Mode started during high strain. Emergency alerts remain active.", "warn");
+function showBreakthrough(on_) {
+  const banner = $('dw-breakthrough-banner');
+  if (banner) banner.style.display = on_ ? 'flex' : 'none';
+  if ($('dw-card')) $('dw-card').style.borderColor = on_ ? '#ef5d6f' : 'rgba(255,255,255,0.08)';
+}
+
+function startDeepWork(durationMin = 25, force = false) {
+  if (deepWorkActive) { extendDeepWork(durationMin); return; }
+
+  /* Starting a focus session while the eyes are already in Critical strain would
+     silence the very alerts that state needs, so it takes an explicit override. */
+  const level = lastFrame ? lastFrame.level : 'Safe';
+  if (level === 'Critical' && !force) {
+    logEvent('warn', 'Deep Work blocked', 'strain is Critical · rest first, or start with the override');
+    showDashboardNotification(
+      'Deep Work blocked — strain is Critical',
+      'Focus mode would silence the alerts you currently need. Rest your eyes first, or override deliberately.',
+      'crit',
+      [{ label: 'Start anyway', action: () => startDeepWork(durationMin, true) },
+       { label: 'Rest now', action: () => trigger202020() }]);
+    return;
   }
 
+  // Chained sessions with no rest in between are themselves a strain risk.
+  const gapMin = lastDeepWorkEndAt ? (Date.now() - lastDeepWorkEndAt) / 60000 : Infinity;
+  if (gapMin > 10) chainMinutes = 0;
+
   deepWorkActive = true;
-  deepWorkSecLeft = durationMin * 60;
-  deepWorkAlertsCount = 0;
+  deepWorkTotal = durationMin * 60;
+  deepWorkLeft = deepWorkTotal;
+  deepWorkEpisodes = 0;
+  inCriticalEpisode = false;
   criticalSecInDeepWork = 0;
-  consecutiveDeepWorkMinutes = durationMin;
+  deepWorkSessions++;
+  chainMinutes += durationMin;
 
   updateDeepWorkUI();
-  logEvent('info', 'Deep Work Mode Started', `${durationMin}-min focus window active`);
+  logEvent('info', 'Deep Work started',
+    `${durationMin} min · enforced-break takeover silenced · chain ${chainMinutes} min`);
+  showDashboardNotification('Deep Work started',
+    `${durationMin} minutes of focus. Intrusive alerts are silenced; 20-20-20 reminders still appear.`, 'ok');
 
   fetch('/api/deep_work_start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ duration_min: durationMin })
   }).catch(() => {});
 
-  if (deepWorkTimerIv) clearInterval(deepWorkTimerIv);
-  deepWorkTimerIv = setInterval(() => {
-    if (!deepWorkActive) return;
-    deepWorkSecLeft--;
-    updateDeepWorkUI();
-
-    // Track Critical strain duration during Deep Work
-    const currentStrain = livePacket ? livePacket.strain_level : lastLevel;
-    if (currentStrain === 'Critical') {
-      criticalSecInDeepWork++;
-      deepWorkAlertsCount++;
-
-      // Edge Case 1: Red Emergency Breakthrough Banner
-      if ($('dw-breakthrough-banner')) $('dw-breakthrough-banner').style.display = 'flex';
-      if ($('dw-card')) $('dw-card').style.borderColor = '#ef5d6f';
-
-      // Edge Case 2: Auto-End Safety Valve if strain stays Critical for > 2 minutes (120s)
-      if (criticalSecInDeepWork >= 120) {
-        autoEndDeepWorkSafetyValve();
-        return;
-      }
-    } else {
-      criticalSecInDeepWork = 0;
-      if ($('dw-breakthrough-banner')) $('dw-breakthrough-banner').style.display = 'none';
-      if ($('dw-card')) $('dw-card').style.borderColor = 'rgba(255,255,255,0.08)';
-    }
-
-    if (deepWorkSecLeft <= 0) {
-      completeDeepWork();
-    }
-  }, 1000);
-}
-
-function autoEndDeepWorkSafetyValve() {
-  stopDeepWork(false);
-  logEvent('crit', '⚠️ Deep Work Auto-Ended (Safety Valve)', 'Sustained Critical strain (>2 min) detected during Deep Work.');
-  alert("⚠️ Deep Work Mode Auto-Ended!\n\nSustained Critical eye strain detected for over 2 minutes despite focus mode. Enforcing mandatory eye recovery.");
-  trigger202020Modal();
+  checkFocusChain();
 }
 
 function extendDeepWork(extraMin = 25) {
   if (!deepWorkActive) return;
-
-  // Edge Case 3: Back-to-Back Deep Work Chaining Protection (Marathon Warning)
-  consecutiveDeepWorkMinutes += extraMin;
-  if (consecutiveDeepWorkMinutes >= 50) {
-    logEvent('warn', '⚠️ Marathon Focus Warning', `User chaining ${consecutiveDeepWorkMinutes}+ min of continuous Deep Work without rest`);
-    alert(`⚠️ Marathon Focus Warning!\n\nYou have been in continuous Deep Work for ${consecutiveDeepWorkMinutes} minutes without a break.\n\nExtended focus without rest severely increases dry-eye risk. Please complete a 20-second visual eye rest break now!`);
-    trigger202020Modal();
-  }
-
-  deepWorkSecLeft += extraMin * 60;
+  deepWorkLeft += extraMin * 60;
+  deepWorkTotal += extraMin * 60;
+  chainMinutes += extraMin;
   updateDeepWorkUI();
-  logEvent('ok', 'Deep Work Extended', `+${extraMin} min added to focus session (Total: ${consecutiveDeepWorkMinutes} min)`);
+  logEvent('ok', 'Deep Work extended',
+    `+${extraMin} min · ${mmss(deepWorkLeft)} remaining · chain ${chainMinutes} min`);
+  checkFocusChain();
+}
+
+/* Back-to-back focus with no rest in between defeats the point of the mode. */
+function checkFocusChain() {
+  if (chainMinutes < DW_CHAIN_WARN_MIN) return;
+  logEvent('warn', 'Extended focus without rest',
+    `${chainMinutes} min of chained Deep Work · a 20-20-20 rest is overdue`);
+  showDashboardNotification('Extended focus without a rest',
+    `${chainMinutes} minutes of chained focus. A 20-second distance rest resets the chain.`,
+    'warn', [{ label: 'Rest now', action: () => trigger202020() }]);
 }
 
 function stopDeepWork(userCancelled = true) {
   if (!deepWorkActive) return;
   deepWorkActive = false;
+  lastDeepWorkEndAt = Date.now();
   criticalSecInDeepWork = 0;
-  consecutiveDeepWorkMinutes = 0;
-  if (deepWorkTimerIv) clearInterval(deepWorkTimerIv);
+  inCriticalEpisode = false;
   updateDeepWorkUI();
-
-  if (userCancelled) {
-    logEvent('warn', 'Deep Work Ended Early', `Session cancelled by user`);
-  }
+  if (userCancelled) logEvent('warn', 'Deep Work ended early', `${mmss(deepWorkLeft)} left on the clock`);
 }
 
 function completeDeepWork() {
+  const minutes = Math.round(deepWorkTotal / 60);
+  const episodes = deepWorkEpisodes;
+  const held = suppressedBreaks;
   stopDeepWork(false);
+
+  logEvent('ok', 'Deep Work complete',
+    `${minutes} min · ${episodes} critical episode${episodes === 1 ? '' : 's'} · ${held} break${held === 1 ? '' : 's'} held back`);
+  showDashboardNotification('Deep Work session complete',
+    episodes === 0
+      ? `${minutes} minutes with zero critical alerts. Great focus.`
+      : `${minutes} minutes finished with ${episodes} critical episode${episodes === 1 ? '' : 's'}. Consider a rest before the next session.`,
+    episodes === 0 ? 'ok' : 'warn',
+    [{ label: 'Rest now', action: () => trigger202020() }]);
+
   fetch('/api/deep_work_complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ duration_min: 25, alerts: deepWorkAlertsCount, status: 'completed' })
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duration_min: minutes, critical_episodes: episodes, status: 'completed' })
   }).catch(() => {});
-
-  logEvent('ok', '🎉 Deep Work Complete!', `Session finished with ${deepWorkAlertsCount} critical alerts. Great focus!`);
-  alert(`🎉 Deep Work session complete!\n\n${deepWorkAlertsCount} critical alerts during focus. Great work!`);
 }
 
-if ($('btn-dw-start')) $('btn-dw-start').addEventListener('click', () => startDeepWork(25));
-if ($('btn-dw-extend')) $('btn-dw-extend').addEventListener('click', () => extendDeepWork(25));
-if ($('btn-dw-stop')) $('btn-dw-stop').addEventListener('click', () => stopDeepWork(true));
-if ($('nav-item-deepwork')) {
-  $('nav-item-deepwork').addEventListener('click', () => {
-    if (!deepWorkActive) {
-      startDeepWork(25);
+/* Driven by the 1 Hz render loop, so the session clock and the telemetry it
+   reacts to always come from the same tick. */
+function tickDeepWork(f) {
+  if (!deepWorkActive) return;
+
+  deepWorkLeft--;
+
+  if (f.level === 'Critical') {
+    criticalSecInDeepWork++;
+    if (!inCriticalEpisode) {
+      inCriticalEpisode = true;
+      deepWorkEpisodes++;
+      showBreakthrough(true);
+      logEvent('crit', 'Critical strain during Deep Work', `breaking through the silence · episode ${deepWorkEpisodes}`);
+      showDashboardNotification('Critical strain — breaking through Deep Work',
+        'Not a routine alert: strain is Critical while focus mode is silencing the rest.', 'crit');
     }
-    if ($('dw-card')) $('dw-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   On-Dashboard Real-Time Notification System
-   ══════════════════════════════════════════════════════════════════════════ */
-function playAudioBeep() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.3);
-  } catch (e) {}
-}
-
-function showDashboardNotification(title, message, type = 'crit') {
-  const container = $('notification-container');
-  if (!container) return;
-
-  playAudioBeep();
-
-  const toast = document.createElement('div');
-  const isCrit = type === 'crit';
-  const bgColor = isCrit ? '#1c1216' : '#1d1a14';
-  const borderColor = isCrit ? '#ef5d6f' : '#e8a33d';
-  const textColor = isCrit ? '#ef5d6f' : '#e8a33d';
-
-  toast.style.cssText = `
-    pointer-events: auto;
-    background: ${bgColor};
-    border: 1px solid ${borderColor};
-    border-radius: 10px;
-    padding: 14px 18px;
-    color: #e5e9f0;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    transition: all 0.3s ease;
-  `;
-
-  toast.innerHTML = `
-    <div style="width:28px; height:28px; border-radius:50%; background:rgba(${isCrit ? '239,93,111' : '232,163,61'}, 0.2); display:flex; align-items:center; justify-content:center; color:${textColor}; flex-shrink:0; margin-top:2px;">
-      <svg class="ic ic-sm" style="width:16px; height:16px;"><use href="${isCrit ? '#i-alert' : '#i-warn-circle'}"/></svg>
-    </div>
-    <div style="flex:1;">
-      <div style="font-size:13px; font-weight:700; color:${textColor}; margin-bottom:2px;">${title}</div>
-      <div style="font-size:12px; color:#c5cbd6; line-height:1.4;">${message}</div>
-    </div>
-    <button onclick="this.parentElement.remove()" style="background:transparent; border:none; color:#97a1b2; font-size:18px; cursor:pointer; padding:0; line-height:1; margin-left:4px;">&times;</button>
-  `;
-
-  container.appendChild(toast);
-
-  setTimeout(() => {
-    if (toast.parentElement) {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(50px)';
-      setTimeout(() => toast.remove(), 300);
-    }
-  }, 6000);
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Intelligent Deep Work Auto-Suggestion Engine
-   ══════════════════════════════════════════════════════════════════════════ */
-let steadyFocusSamples = 0;
-let deepWorkAutoSuggested = false;
-
-function checkDeepWorkAutoSuggest(f) {
-  if (deepWorkActive || deepWorkAutoSuggested) return;
-
-  const isDistanceSteady = f.dist >= 30 && f.dist <= 65;
-  const isTiltSteady = f.tilt <= 20;
-
-  if (isDistanceSteady && isTiltSteady && f.session >= 1) {
-    steadyFocusSamples++;
-    if (steadyFocusSamples >= 50) {
-      deepWorkAutoSuggested = true;
-      suggestDeepWorkToast();
+    if (criticalSecInDeepWork >= DW_CRITICAL_AUTOEND_SEC) {
+      stopDeepWork(false);
+      logEvent('crit', 'Deep Work auto-ended',
+        `strain stayed Critical for ${DW_CRITICAL_AUTOEND_SEC} s despite the override`);
+      showDashboardNotification('Deep Work auto-ended',
+        'Strain stayed Critical for two minutes. Focus mode released and a rest is starting.', 'crit');
+      trigger202020();
+      return;
     }
   } else {
-    steadyFocusSamples = Math.max(0, steadyFocusSamples - 1);
+    criticalSecInDeepWork = 0;
+    if (inCriticalEpisode) { inCriticalEpisode = false; showBreakthrough(false); }
   }
+
+  if (deepWorkLeft <= 0) { completeDeepWork(); return; }
+  updateDeepWorkUI();
 }
 
-function suggestDeepWorkToast() {
+/* ══════════════════════════════════════════════════════════════════════════
+   On-dashboard notifications
+   ══════════════════════════════════════════════════════════════════════════ */
+function playAudioBeep() {
+  if (!settings.sound_alerts) return;
+  if (deepWorkActive) return;                     // silence is the point of the mode
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+  } catch (e) { /* autoplay policy or no audio device */ }
+}
+
+const TOAST_TONE = {
+  crit: ['#1c1216', '#ef5d6f', '#i-alert'],
+  warn: ['#1d1a14', '#e8a33d', '#i-warn-circle'],
+  ok:   ['#101c17', '#35c98a', '#i-check'],
+  info: ['#101a2c', '#4d8dff', '#i-target']
+};
+
+function showDashboardNotification(title, message, type = 'crit', actions = []) {
   const container = $('notification-container');
   if (!container) return;
+  if (type === 'crit' || type === 'warn') playAudioBeep();
 
+  const [bg, accent, icon] = TOAST_TONE[type] || TOAST_TONE.crit;
   const toast = document.createElement('div');
-  toast.style.cssText = `
-    pointer-events: auto;
-    background: #101a2c;
-    border: 1px solid rgba(77,141,255,0.4);
-    border-radius: 12px;
-    padding: 16px 18px;
-    color: #e5e9f0;
-    box-shadow: 0 12px 36px rgba(0,0,0,0.7);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    transition: all 0.3s ease;
-  `;
+  toast.style.cssText = `pointer-events:auto; background:${bg}; border:1px solid ${accent};
+    border-radius:10px; padding:14px 16px; color:#e5e9f0; box-shadow:0 10px 30px rgba(0,0,0,0.6);
+    display:flex; flex-direction:column; gap:10px; transition:opacity .3s, transform .3s;`;
 
-  toast.innerHTML = `
-    <div style="display:flex; align-items:flex-start; gap:12px;">
-      <div style="width:32px; height:32px; border-radius:50%; background:rgba(77,141,255,0.2); display:flex; align-items:center; justify-content:center; color:#4d8dff; flex-shrink:0;">
-        <svg class="ic ic-sm"><use href="#i-target"/></svg>
-      </div>
-      <div style="flex:1;">
-        <div style="font-size:13px; font-weight:700; color:#fff;">🧠 Steady Focus State Detected</div>
-        <div style="font-size:12px; color:#a0acc0; line-height:1.4; margin-top:2px;">You've maintained steady posture & viewing distance. Enable Deep Work Mode to silence routine alert nags and preserve your flow state?</div>
-      </div>
-      <button onclick="this.closest('div').parentElement.remove()" style="background:transparent; border:none; color:#97a1b2; font-size:18px; cursor:pointer;">&times;</button>
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex; align-items:flex-start; gap:12px;';
+  head.innerHTML = `
+    <div style="width:28px; height:28px; border-radius:50%; background:${accent}22; display:flex;
+                align-items:center; justify-content:center; color:${accent}; flex-shrink:0;">
+      <svg class="ic ic-sm"><use href="${icon}"/></svg>
     </div>
-    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:4px;">
-      <button id="btn-suggest-dw-accept" style="background:#4d8dff; color:#fff; border:none; border-radius:6px; padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer;">Enable Deep Work (25m)</button>
-      <button id="btn-suggest-dw-decline" style="background:#1c2536; color:#97a1b2; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:8px 12px; font-size:12px; cursor:pointer;">Not Now</button>
-    </div>
-  `;
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:13px; font-weight:700; color:${accent};">${title}</div>
+      <div style="font-size:12px; color:#c5cbd6; line-height:1.45; margin-top:2px;">${message}</div>
+    </div>`;
+  const close = document.createElement('button');
+  close.textContent = '×';
+  close.style.cssText = 'background:transparent; border:none; color:#97a1b2; font-size:18px; cursor:pointer; line-height:1;';
+  close.addEventListener('click', () => toast.remove());
+  head.appendChild(close);
+  toast.appendChild(head);
+
+  if (actions.length) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;';
+    actions.forEach((a, i) => {
+      const b = document.createElement('button');
+      b.textContent = a.label;
+      b.style.cssText = i === 0
+        ? `background:${accent}; color:#0b0e13; border:none; border-radius:6px; padding:7px 14px; font-size:12px; font-weight:600; cursor:pointer;`
+        : 'background:#1c2536; color:#97a1b2; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer;';
+      b.addEventListener('click', () => { toast.remove(); a.action(); });
+      row.appendChild(b);
+    });
+    toast.appendChild(row);
+  }
 
   container.appendChild(toast);
-
-  const acceptBtn = toast.querySelector('#btn-suggest-dw-accept');
-  const declineBtn = toast.querySelector('#btn-suggest-dw-decline');
-
-  if (acceptBtn) {
-    acceptBtn.addEventListener('click', () => {
-      startDeepWork(25);
-      toast.remove();
-    });
-  }
-  if (declineBtn) {
-    declineBtn.addEventListener('click', () => toast.remove());
-  }
-
   setTimeout(() => {
-    if (toast.parentElement) toast.remove();
-  }, 12000);
+    if (!toast.parentElement) return;
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(40px)';
+    setTimeout(() => toast.remove(), 300);
+  }, actions.length ? 14000 : 6000);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Deep Work auto-suggestion — steady posture and distance imply focused work
+   ══════════════════════════════════════════════════════════════════════════ */
+function checkDeepWorkAutoSuggest(f) {
+  if (deepWorkActive || deepWorkAutoSuggested || f.level === 'Critical') return;
+
+  const steady = f.dist >= 30 && f.dist <= 65 && f.tilt <= 20;
+  steadyFocusSamples = steady ? steadyFocusSamples + 1 : Math.max(0, steadyFocusSamples - 1);
+
+  if (steadyFocusSamples >= 50) {
+    deepWorkAutoSuggested = true;
+    logEvent('info', 'Steady focus detected', 'posture and viewing distance held for ~50 s');
+    showDashboardNotification('Steady focus detected',
+      'Posture and viewing distance have been stable. Start a 25-minute Deep Work session to silence routine alerts?',
+      'info',
+      [{ label: 'Start Deep Work', action: () => startDeepWork(25) },
+       { label: 'Not now', action: () => {} }]);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Wiring
+   ══════════════════════════════════════════════════════════════════════════ */
+const bind = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+
+bind('btn-dw-start', 'click', () => startDeepWork(25));
+bind('btn-dw-extend', 'click', () => extendDeepWork(25));
+bind('btn-dw-stop', 'click', () => stopDeepWork(true));
+bind('nav-item-deepwork', 'click', () => {
+  if (!deepWorkActive) startDeepWork(25);
+  const card = $('dw-card');
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+bind('nav-item-analytics', 'click', openAnalyticsModal);
+bind('an-close', 'click', closeAnalyticsModal);
+bind('an-tab-daily', 'click', () => renderAnalytics('daily'));
+bind('an-tab-weekly', 'click', () => renderAnalytics('weekly'));
+
+bind('nav-item-settings', 'click', openSettingsModal);
+bind('set-close', 'click', closeSettingsModal);
+bind('cfg-form', 'submit', saveSettings);
+
+bind('btn-202020-comply', 'click', () => { t20Interacted = true; close202020('complied'); });
+bind('btn-202020-skip', 'click', () => { t20Interacted = true; close202020('skipped'); });
+bind('btn-202020-dw', 'click', () => { t20Interacted = true; close202020('skipped'); startDeepWork(25, true); });
+
+bind('corner-strain-dot', 'click', () => {
+  const bar = $('statusbar');
+  if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if ($('analytics-modal') && $('analytics-modal').style.display !== 'none') closeAnalyticsModal();
+  if ($('settings-modal') && $('settings-modal').style.display !== 'none') closeSettingsModal();
+});
+
+/* The physical Deep Work button on the spectacles: when app.py broadcasts a
+   `deep_work_start` event over Socket.IO, the console picks it up here. */
+if (typeof io !== 'undefined') {
+  try {
+    const evtSocket = io({ transports: ['websocket', 'polling'] });
+    evtSocket.on('deep_work_start', (d) => {
+      const mins = (d && d.duration_min) || 25;
+      logEvent('info', 'Deep Work requested by device', `${mins} min · deep_work_start over Wi-Fi`);
+      startDeepWork(mins, true);
+    });
+  } catch (e) { /* standalone */ }
+}
+
+/* Inline onclick attributes in the markup call these by name. */
+Object.assign(window, {
+  startDeepWork, extendDeepWork, stopDeepWork,
+  openAnalyticsModal, closeAnalyticsModal,
+  openSettingsModal, closeSettingsModal,
+  trigger202020, close202020, renderAnalytics
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Boot — every binding above is initialised before the loop starts
+   ══════════════════════════════════════════════════════════════════════════ */
+try {
+  const saved = JSON.parse(localStorage.getItem('nr.compliance.v1') || 'null');
+  if (saved) Object.assign(t20Outcomes, saved);
+} catch (e) {}
+
+loadSettings();
+update202020UI();
+updateDeepWorkUI();
+
+setInterval(render, 1000);
+render();
