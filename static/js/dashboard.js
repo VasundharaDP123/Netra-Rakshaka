@@ -576,6 +576,11 @@ function render() {
   if (lastLevel !== f.level) {
     if (lastLevel !== null) {
       logEvent(st.sev, `Strain state → ${st.badge}`, `index ${f.score}/100 · ${lastLevel} → ${f.level}`);
+      if (f.level === 'Critical') {
+        showDashboardNotification("🚨 CRITICAL EYE STRAIN DETECTED", `Ocular strain score ${f.score}/100! Blink rate or viewing distance critically degraded. Recovery break required.`, "crit");
+      } else if (f.level === 'Moderate') {
+        showDashboardNotification("⚠️ Moderate Eye Strain Warning", `Ocular strain score ${f.score}/100. Early fatigue detected — rest recommended.`, "warn");
+      }
     } else {
       logEvent('info', 'Monitoring started', 'classifier online · 5 Hz sampling');
     }
@@ -1042,3 +1047,70 @@ function completeDeepWork() {
 if ($('btn-dw-start')) $('btn-dw-start').addEventListener('click', () => startDeepWork(25));
 if ($('btn-dw-extend')) $('btn-dw-extend').addEventListener('click', () => extendDeepWork(25));
 if ($('btn-dw-stop')) $('btn-dw-stop').addEventListener('click', () => stopDeepWork(true));
+
+/* ══════════════════════════════════════════════════════════════════════════
+   On-Dashboard Real-Time Notification System
+   ══════════════════════════════════════════════════════════════════════════ */
+function playAudioBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (e) {}
+}
+
+function showDashboardNotification(title, message, type = 'crit') {
+  const container = $('notification-container');
+  if (!container) return;
+
+  playAudioBeep();
+
+  const toast = document.createElement('div');
+  const isCrit = type === 'crit';
+  const bgColor = isCrit ? '#1c1216' : '#1d1a14';
+  const borderColor = isCrit ? '#ef5d6f' : '#e8a33d';
+  const textColor = isCrit ? '#ef5d6f' : '#e8a33d';
+
+  toast.style.cssText = `
+    pointer-events: auto;
+    background: ${bgColor};
+    border: 1px solid ${borderColor};
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #e5e9f0;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    transition: all 0.3s ease;
+  `;
+
+  toast.innerHTML = `
+    <div style="width:28px; height:28px; border-radius:50%; background:rgba(${isCrit ? '239,93,111' : '232,163,61'}, 0.2); display:flex; align-items:center; justify-content:center; color:${textColor}; flex-shrink:0; margin-top:2px;">
+      <svg class="ic ic-sm" style="width:16px; height:16px;"><use href="${isCrit ? '#i-alert' : '#i-warn-circle'}"/></svg>
+    </div>
+    <div style="flex:1;">
+      <div style="font-size:13px; font-weight:700; color:${textColor}; margin-bottom:2px;">${title}</div>
+      <div style="font-size:12px; color:#c5cbd6; line-height:1.4;">${message}</div>
+    </div>
+    <button onclick="this.parentElement.remove()" style="background:transparent; border:none; color:#97a1b2; font-size:18px; cursor:pointer; padding:0; line-height:1; margin-left:4px;">&times;</button>
+  `;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(50px)';
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 6000);
+}
