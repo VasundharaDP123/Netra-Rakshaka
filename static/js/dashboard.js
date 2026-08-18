@@ -682,7 +682,7 @@ function recordLiveTelemetry(d) {
   if (liveSessionBuffer.length > MAX_LIVE_BUFFER) liveSessionBuffer.shift();
 
   // If Analytics Modal is open, update numbers LIVE on every single incoming sensor packet!
-  if ($('analytics-modal') && $('analytics-modal').style.display === 'flex') {
+  if ($('analytics-modal') && $('analytics-modal').style.display !== 'none') {
     renderLiveAnalytics(currentAnalyticsWindow);
   }
 }
@@ -761,7 +761,7 @@ function loadSettings() {
 
 if ($('nav-item-analytics')) {
   $('nav-item-analytics').addEventListener('click', () => {
-    $('analytics-modal').style.display = 'flex';
+    $('analytics-modal').style.display = 'block';
     renderLiveAnalytics('daily');
   });
 }
