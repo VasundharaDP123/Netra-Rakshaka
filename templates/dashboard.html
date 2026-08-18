@@ -636,20 +636,48 @@
   </div>
 </div>
 
-<!-- ═══════════════ Soft 20-20-20 Visual Rest Reminder Modal ═══════════════ -->
-<div id="modal-202020" style="display:none; position:fixed; inset:0; z-index:9500; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); align-items:center; justify-content:center; padding:20px;">
-  <div class="modal" style="max-width:480px; width:100%; background:#131926; border:1px solid rgba(53,201,138,0.3); border-radius:12px; padding:24px; color:#e5e9f0; text-align:center;">
-    <div style="width:54px; height:54px; border-radius:50%; background:rgba(53,201,138,0.15); display:inline-flex; align-items:center; justify-content:center; color:#35c98a; margin-bottom:12px;">
-      <svg class="ic ic-lg" style="width:28px; height:28px;"><use href="#i-eye"/></svg>
+<!-- ═══════════════ Full-Screen 20-20-20 Visual Rest Recovery Overlay ═══════════════ -->
+<div id="modal-202020" style="display:none; position:fixed; inset:0; z-index:99999; width:100vw; height:100vh; background:#080b12; backdrop-filter:blur(16px); align-items:center; justify-content:center; padding:32px; box-sizing:border-box;">
+  <div class="modal" style="max-width:840px; width:100%; background:#111723; border:1px solid rgba(53,201,138,0.4); border-radius:20px; padding:48px 40px; color:#e5e9f0; text-align:center; box-shadow:0 24px 80px rgba(0,0,0,0.9);">
+    <!-- Glowing Icon -->
+    <div style="width:72px; height:72px; border-radius:50%; background:rgba(53,201,138,0.15); display:inline-flex; align-items:center; justify-content:center; color:#35c98a; margin-bottom:16px; border:1px solid rgba(53,201,138,0.3);">
+      <svg class="ic ic-lg" style="width:36px; height:36px;"><use href="#i-eye"/></svg>
     </div>
-    <h3 style="font-size:20px; font-weight:600; margin:0 0 6px 0; color:#e5e9f0;">20-20-20 Visual Break Time</h3>
-    <p style="font-size:13px; color:#97a1b2; margin:0 0 18px 0;">Look at something <strong>20 feet (6 meters) away</strong> for <strong>20 seconds</strong> to relax your focal muscles.</p>
-    
-    <div style="font-size:36px; font-weight:700; font-family:'JetBrains Mono'; color:#35c98a; margin-bottom:20px;" id="m20-timer">20</div>
 
-    <div style="display:flex; gap:12px; justify-content:center;">
-      <button id="btn-202020-comply" style="background:#35c98a; color:#0c1d14; border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer;">I Looked Away (Complied)</button>
-      <button id="btn-202020-skip" style="background:#1e2638; color:#97a1b2; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px 16px; font-size:13px; font-weight:500; cursor:pointer;">Skip</button>
+    <h2 style="font-size:28px; font-weight:700; margin:0 0 8px 0; color:#fff;">20-20-20 Visual Recovery Break</h2>
+    <p style="font-size:15px; color:#97a1b2; margin:0 0 24px 0; max-width:600px; margin-left:auto; margin-right:auto;">
+      Look at something <strong>20 feet (6 meters) away</strong> for <strong>20 seconds</strong> to relax your eye muscles and restore your tear film.
+    </p>
+    
+    <!-- Huge Countdown Timer -->
+    <div style="font-size:72px; font-weight:800; font-family:'JetBrains Mono'; color:#35c98a; margin-bottom:28px; text-shadow:0 0 30px rgba(53,201,138,0.3);" id="m20-timer">20</div>
+
+    <!-- 3 Step Exercises -->
+    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom:32px; text-align:left;">
+      <div style="background:#172030; padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; gap:8px; color:#35c98a; font-weight:600; font-size:13px; margin-bottom:6px;">
+          <svg class="ic ic-sm"><use href="#i-eye"/></svg> 1. Look Away
+        </div>
+        <div style="font-size:12px; color:#97a1b2; line-height:1.4;">Shift your gaze off the screen display.</div>
+      </div>
+      <div style="background:#172030; padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; gap:8px; color:#4d8dff; font-weight:600; font-size:13px; margin-bottom:6px;">
+          <svg class="ic ic-sm"><use href="#i-leaf"/></svg> 2. Focus Far
+        </div>
+        <div style="font-size:12px; color:#97a1b2; line-height:1.4;">Fix on a distant object ~20 feet away.</div>
+      </div>
+      <div style="background:#172030; padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; gap:8px; color:#e8a33d; font-weight:600; font-size:13px; margin-bottom:6px;">
+          <svg class="ic ic-sm"><use href="#i-drop"/></svg> 3. Rehydrate
+        </div>
+        <div style="font-size:12px; color:#97a1b2; line-height:1.4;">Blink slowly and fully 10 times.</div>
+      </div>
+    </div>
+
+    <!-- Compliance Action Buttons -->
+    <div style="display:flex; gap:16px; justify-content:center;">
+      <button id="btn-202020-comply" style="background:#35c98a; color:#0b1d14; border:none; border-radius:10px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 6px 20px rgba(53,201,138,0.3);">I Looked Away (Complied)</button>
+      <button id="btn-202020-skip" style="background:#1e2638; color:#97a1b2; border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:14px 24px; font-size:14px; font-weight:600; cursor:pointer;">Skip Break</button>
     </div>
   </div>
 </div>
