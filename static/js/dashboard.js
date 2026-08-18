@@ -1047,6 +1047,7 @@ function update202020UI() {
   const chip = $('t20-status');
   if (chip) {
     const [label, cls] = t20ModalOpen ? ['Resting', 'ok']
+      : deepWorkActive ? ['Held', 'warn']
       : t20Paused ? ['Paused', 'warn']
       : t20Left <= 60 ? ['Due soon', 'warn']
       : ['Active', 'ok'];
@@ -1054,6 +1055,7 @@ function update202020UI() {
     chip.textContent = label;
   }
   setText('t20-sub', t20ModalOpen ? 'Visual rest in progress'
+    : deepWorkActive ? 'Held during Deep Work · resumes when the session ends'
     : t20Paused ? 'Paused · no active screen use detected'
     : `Next rest in ${mmss(t20Left)} · gentle visual reminder`);
 }
@@ -1072,6 +1074,15 @@ function tick202020(f) {
 
   if (t20ModalOpen) { update202020UI(); return; }
 
+  // Deep Work holds the rest cycle: the clock stops where it is and no prompt
+  // can fire, so a focus session is never interrupted. It resumes on its own
+  // when the session ends.
+  if (deepWorkActive) {
+    t20Paused = true;
+    update202020UI();
+    return;
+  }
+
   const activeScreenUse = f.dist > 0 && f.dist < ACTIVE_SCREEN_CM;
   t20Paused = !activeScreenUse;
   if (activeScreenUse) {
@@ -1081,9 +1092,13 @@ function tick202020(f) {
   update202020UI();
 }
 
-function trigger202020() {
+/* `force` is set only when the wearer asks for a rest themselves (the "Rest now"
+   action on an alert, or the auto-end safety valve). Everything automatic is
+   blocked while a focus session is running. */
+function trigger202020(force = false) {
   const modal = $('modal-202020');
   if (!modal || t20ModalOpen) return;
+  if (deepWorkActive && !force) return;
 
   t20ModalOpen = true;
   t20Interacted = false;
@@ -1171,7 +1186,7 @@ function updateDeepWorkUI() {
     if ($('btn-dw-stop')) $('btn-dw-stop').style.display = 'none';
     setText('dw-title', 'Deep Work Mode');
     if ($('dw-title')) $('dw-title').style.color = '#e5e9f0';
-    setText('dw-desc', '25-min focus session · silences intrusive alerts');
+    setText('dw-desc', '25-min focus session · holds breaks and 20-20-20 rests');
     showBreakthrough(false);
   }
 }
@@ -1195,7 +1210,7 @@ function startDeepWork(durationMin = 25, force = false) {
       'Focus mode would silence the alerts you currently need. Rest your eyes first, or override deliberately.',
       'crit',
       [{ label: 'Start anyway', action: () => startDeepWork(durationMin, true) },
-       { label: 'Rest now', action: () => trigger202020() }]);
+       { label: 'Rest now', action: () => trigger202020(true) }]);
     return;
   }
 
@@ -1216,7 +1231,7 @@ function startDeepWork(durationMin = 25, force = false) {
   logEvent('info', 'Deep Work started',
     `${durationMin} min · enforced-break takeover silenced · chain ${chainMinutes} min`);
   showDashboardNotification('Deep Work started',
-    `${durationMin} minutes of focus. Intrusive alerts are silenced; 20-20-20 reminders still appear.`, 'ok');
+    `${durationMin} minutes of focus. Enforced breaks and 20-20-20 rests are held until the session ends.`, 'ok');
 
   fetch('/api/deep_work_start', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1244,7 +1259,7 @@ function checkFocusChain() {
     `${chainMinutes} min of chained Deep Work · a 20-20-20 rest is overdue`);
   showDashboardNotification('Extended focus without a rest',
     `${chainMinutes} minutes of chained focus. A 20-second distance rest resets the chain.`,
-    'warn', [{ label: 'Rest now', action: () => trigger202020() }]);
+    'warn', [{ label: 'Rest now', action: () => trigger202020(true) }]);
 }
 
 function stopDeepWork(userCancelled = true) {
@@ -1270,7 +1285,7 @@ function completeDeepWork() {
       ? `${minutes} minutes with zero critical alerts. Great focus.`
       : `${minutes} minutes finished with ${episodes} critical episode${episodes === 1 ? '' : 's'}. Consider a rest before the next session.`,
     episodes === 0 ? 'ok' : 'warn',
-    [{ label: 'Rest now', action: () => trigger202020() }]);
+    [{ label: 'Rest now', action: () => trigger202020(true) }]);
 
   fetch('/api/deep_work_complete', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1301,7 +1316,7 @@ function tickDeepWork(f) {
         `strain stayed Critical for ${DW_CRITICAL_AUTOEND_SEC} s despite the override`);
       showDashboardNotification('Deep Work auto-ended',
         'Strain stayed Critical for two minutes. Focus mode released and a rest is starting.', 'crit');
-      trigger202020();
+      trigger202020(true);
       return;
     }
   } else {
@@ -1476,7 +1491,7 @@ function notifyStrain(f, level) {
     level === 'Critical' ? `Critical strain · ${f.score}/100` : `Fatigue building · ${f.score}/100`,
     body,
     level === 'Critical' ? 'crit' : 'warn',
-    [{ label: 'Rest 20 s', action: () => trigger202020() }]
+    [{ label: 'Rest 20 s', action: () => trigger202020(true) }]
   );
 }
 

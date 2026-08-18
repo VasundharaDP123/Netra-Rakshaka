@@ -209,7 +209,7 @@ A gentle, always-present rest cycle, independent of strain alerts:
 
 - Counts down **only during active screen use** (distance < 60 cm); pauses otherwise
 - **Reset by any stronger intervention** — an enforced break or a new Critical episode restarts the cycle instead of stacking a second prompt on it
-- **Exempt from Deep Work suppression**, but shown silently during a focus session, with an on-screen note saying so
+- **Held during Deep Work** — the clock stops where it is and no prompt can fire, so a focus session is never interrupted; it resumes when the session ends. A rest the wearer asks for themselves still opens
 - At zero, a 20-second guided rest: look away, focus ~20 feet, blink fully ten times
 - **Compliance is recorded** as `complied` / `skipped` / `ignored` — behavioural data for the forecasting work
 
@@ -221,6 +221,7 @@ A 25-minute focus window that silences intrusive alerts without silencing genuin
 |---|---|
 | Start under Critical strain | **Blocked**, with an explicit "Start anyway" override |
 | Enforced break during a session | Suppressed and counted, shown as a visual breakthrough banner instead |
+| 20-20-20 rest during a session | Held: the rest clock pauses and no prompt fires until the session ends |
 | Critical strain during a session | Breaks through with a distinct banner; episodes counted once each, not per second |
 | Sustained Critical > 2 minutes | Session **auto-ends** and a rest opens |
 | Chained focus ≥ 50 minutes | Flagged as a strain risk; only a complied rest resets the chain |

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/dashboard.css?v=8">
+<link rel="stylesheet" href="/static/css/dashboard.css?v=9">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -134,7 +134,7 @@
               </div>
               <div>
                 <div style="font-size:13px; font-weight:600; color:#e5e9f0;" id="dw-title">Deep Work Mode</div>
-                <div style="font-size:11px; color:#97a1b2;" id="dw-desc">25-min focus session · silences intrusive alerts</div>
+                <div style="font-size:11px; color:#97a1b2;" id="dw-desc">25-min focus session · holds breaks and 20-20-20 rests</div>
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
@@ -713,7 +713,7 @@
 
     <!-- Shown only while Deep Work is running, so the silence promise stays honest -->
     <div id="m20-dw-note" style="display:none; margin:0 auto 20px; max-width:560px; padding:10px 14px; border-radius:8px; background:rgba(77,141,255,0.12); border:1px solid rgba(77,141,255,0.35); color:#8fb6ff; font-size:12px;">
-      Deep Work is active — this is a silent visual reminder. Your intrusive alerts stay suppressed.
+      You asked for this rest during Deep Work. Automatic rests stay held until the session ends.
     </div>
 
     <!-- 3 Step Exercises -->
@@ -747,6 +747,6 @@
   </div>
 </div>
 
-<script src="/static/js/dashboard.js?v=10"></script>
+<script src="/static/js/dashboard.js?v=11"></script>
 </body>
 </html>
