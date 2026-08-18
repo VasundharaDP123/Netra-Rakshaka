@@ -463,6 +463,10 @@ function render() {
   const st = STATUS[f.level] || STATUS.Safe;
   document.body.dataset.state = st.key;
 
+  /* Update scenario buttons to reflect active telemetry strain state */
+  const activeBtnId = f.level === 'Critical' ? 'btn-Critical' : (f.level === 'Moderate' ? 'btn-Degrading' : 'btn-Normal');
+  document.querySelectorAll('.seg').forEach(b => b.setAttribute('aria-selected', b.id === activeBtnId ? 'true' : 'false'));
+
   /* telemetry source */
   if (f.source !== lastSource) {
     $('feed-tag').className = 'tag' + (f.live ? (f.source === 'SIMULATOR' ? ' warn' : ' ok') : ' warn');

@@ -145,39 +145,62 @@ class Simulator:
         return self._simulated_values()
 
     def _simulated_values(self):
-        # Base values
-        data = {
-            "blink_rate": 0,
-            "blink_duration_ms": 200,
-            "eye_temp_celsius": 25.0,
-            "screen_distance_cm": 45,
-            "ambient_lux": 150,
-            "room_humidity_pct": 50,
-            "head_tilt_degrees": 5,
-            "room_temp_celsius": 25.0,
-        }
-
         # Calculate continuous time
         self.continuous_screen_time_min = int((time.time() - self.start_time) / 60)
-        data["continuous_screen_time_min"] = self.continuous_screen_time_min
 
         if self.mode == "Normal":
-            pass # Keep base values
-            
+            return {
+                "blink_rate": 17,
+                "blink_count": 85,
+                "blink_duration_ms": 180,
+                "eye_temp_celsius": 34.8,
+                "screen_distance_cm": 46,
+                "ambient_lux": 300,
+                "room_humidity_pct": 50,
+                "head_tilt_degrees": 5,
+                "room_temp_celsius": 25.0,
+                "continuous_screen_time_min": max(12, self.continuous_screen_time_min)
+            }
         elif self.mode == "Degrading":
             self.degrade_step += 1
-            data["screen_distance_cm"] = max(15, 45 - self.degrade_step)
-            data["eye_temp_celsius"] = max(33.0, 35.0 - (self.degrade_step * 0.1))
-            data["head_tilt_degrees"] = min(40, 5 + self.degrade_step)
-            data["blink_duration_ms"] = min(800, 200 + (self.degrade_step * 10))
-            
+            return {
+                "blink_rate": 9,
+                "blink_count": 120,
+                "blink_duration_ms": 280,
+                "eye_temp_celsius": 36.1,
+                "screen_distance_cm": 24,
+                "ambient_lux": 110,
+                "room_humidity_pct": 40,
+                "head_tilt_degrees": 24,
+                "room_temp_celsius": 26.5,
+                "continuous_screen_time_min": max(45, self.continuous_screen_time_min)
+            }
         elif self.mode == "Critical":
-            data["blink_duration_ms"] = 700
-            data["eye_temp_celsius"] = 33.5
-            data["screen_distance_cm"] = 15
-            data["ambient_lux"] = 80
-            data["room_humidity_pct"] = 25
-            data["head_tilt_degrees"] = 40
+            return {
+                "blink_rate": 4,
+                "blink_count": 140,
+                "blink_duration_ms": 450,
+                "eye_temp_celsius": 37.4,
+                "screen_distance_cm": 14,
+                "ambient_lux": 70,
+                "room_humidity_pct": 25,
+                "head_tilt_degrees": 38,
+                "room_temp_celsius": 28.0,
+                "continuous_screen_time_min": max(75, self.continuous_screen_time_min)
+            }
+        else:
+            return {
+                "blink_rate": 17,
+                "blink_count": 50,
+                "blink_duration_ms": 180,
+                "eye_temp_celsius": 34.8,
+                "screen_distance_cm": 45,
+                "ambient_lux": 300,
+                "room_humidity_pct": 50,
+                "head_tilt_degrees": 5,
+                "room_temp_celsius": 25.0,
+                "continuous_screen_time_min": self.continuous_screen_time_min
+            }
             data["continuous_screen_time_min"] = 50
 
         # Clamp bounds
