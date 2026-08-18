@@ -72,9 +72,9 @@
     <div class="nav-label">Monitoring</div>
     <div class="nav-item" aria-current="page"><svg class="ic"><use href="#i-activity"/></svg><span>Live Biometrics</span></div>
     <div class="nav-item" id="nav-item-history" style="cursor:pointer;"><svg class="ic"><use href="#i-list"/></svg><span>Session History</span><span class="count" id="nav-samples">0</span></div>
-    <div class="nav-item" id="nav-item-analytics" style="cursor:pointer;"><svg class="ic"><use href="#i-gauge"/></svg><span>Health Analytics</span><span class="count" style="background:var(--accent);">Report</span></div>
-    <div class="nav-item" id="nav-item-deepwork" style="cursor:pointer;"><svg class="ic"><use href="#i-shield"/></svg><span>Deep Work Mode</span><span class="count" style="background:#35c98a;">25m</span></div>
-    <div class="nav-item" id="nav-item-settings" style="cursor:pointer;"><svg class="ic"><use href="#i-bell"/></svg><span>Configuration</span><span class="count" id="nav-breaks">0</span></div>
+    <div class="nav-item" id="nav-item-analytics" onclick="openAnalyticsModal()" style="cursor:pointer;"><svg class="ic"><use href="#i-gauge"/></svg><span>Health Analytics</span><span class="count" style="background:var(--accent);">Report</span></div>
+    <div class="nav-item" id="nav-item-deepwork" onclick="startDeepWork(25)" style="cursor:pointer;"><svg class="ic"><use href="#i-shield"/></svg><span>Deep Work Mode</span><span class="count" style="background:#35c98a;">25m</span></div>
+    <div class="nav-item" id="nav-item-settings" onclick="openSettingsModal()" style="cursor:pointer;"><svg class="ic"><use href="#i-bell"/></svg><span>Configuration</span><span class="count" id="nav-breaks">0</span></div>
 
     <div class="nav-sep"></div>
     <div class="nav-label">Device</div>
@@ -138,9 +138,9 @@
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
               <div id="dw-timer-display" style="display:none; font-family:'JetBrains Mono'; font-weight:600; font-size:14px; color:#35c98a; margin-right:6px;">25:00</div>
-              <button id="btn-dw-start" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer;">Start Deep Work</button>
-              <button id="btn-dw-extend" style="display:none; background:#1e2738; color:#4d8dff; border:1px solid #304060; border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">+25 Min</button>
-              <button id="btn-dw-stop" style="display:none; background:rgba(239,93,111,0.15); color:#ef5d6f; border:1px solid rgba(239,93,111,0.3); border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">End Session</button>
+              <button id="btn-dw-start" onclick="startDeepWork(25)" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer;">Start Deep Work</button>
+              <button id="btn-dw-extend" onclick="extendDeepWork(25)" style="display:none; background:#1e2738; color:#4d8dff; border:1px solid #304060; border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">+25 Min</button>
+              <button id="btn-dw-stop" onclick="stopDeepWork(true)" style="display:none; background:rgba(239,93,111,0.15); color:#ef5d6f; border:1px solid rgba(239,93,111,0.3); border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">End Session</button>
             </div>
           </div>
           <!-- Red Emergency Breakthrough Alert Banner (Hidden by default) -->
@@ -492,7 +492,7 @@
           <button id="an-tab-daily" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:13px; cursor:pointer; font-weight:600;">Daily (24h)</button>
           <button id="an-tab-weekly" style="background:transparent; color:#97a1b2; border:none; border-radius:6px; padding:8px 18px; font-size:13px; cursor:pointer; font-weight:600;">Weekly (7d)</button>
         </div>
-        <button id="an-close" style="background:#1e2638; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px 20px; font-size:13px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:8px;">
+        <button id="an-close" onclick="closeAnalyticsModal()" style="background:#1e2638; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px 20px; font-size:13px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:8px;">
           <span>← Back to Live Dashboard</span>
         </button>
       </div>
@@ -687,6 +687,6 @@
   </div>
 </div>
 
-<script src="/static/js/dashboard.js?v=6"></script>
+<script src="/static/js/dashboard.js?v=7"></script>
 </body>
 </html>

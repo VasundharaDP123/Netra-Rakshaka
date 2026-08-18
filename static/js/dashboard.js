@@ -788,16 +788,43 @@ function loadSettings() {
     .catch(() => {});
 }
 
-if ($('nav-item-analytics')) {
-  $('nav-item-analytics').addEventListener('click', () => {
-    $('analytics-modal').style.display = 'block';
+function openAnalyticsModal() {
+  const modal = $('analytics-modal');
+  if (modal) {
+    modal.style.display = 'block';
     renderLiveAnalytics('daily');
-  });
+  }
+}
+function closeAnalyticsModal() {
+  const modal = $('analytics-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+function openSettingsModal() {
+  const modal = $('settings-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+    loadSettings();
+  }
+}
+function closeSettingsModal() {
+  const modal = $('settings-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+window.openAnalyticsModal = openAnalyticsModal;
+window.closeAnalyticsModal = closeAnalyticsModal;
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+
+if ($('nav-item-analytics')) {
+  $('nav-item-analytics').addEventListener('click', openAnalyticsModal);
 }
 if ($('an-close')) {
-  $('an-close').addEventListener('click', () => {
-    $('analytics-modal').style.display = 'none';
-  });
+  $('an-close').addEventListener('click', closeAnalyticsModal);
 }
 if ($('an-tab-daily')) {
   $('an-tab-daily').addEventListener('click', () => renderLiveAnalytics('daily'));
@@ -807,15 +834,10 @@ if ($('an-tab-weekly')) {
 }
 
 if ($('nav-item-settings')) {
-  $('nav-item-settings').addEventListener('click', () => {
-    $('settings-modal').style.display = 'flex';
-    loadSettings();
-  });
+  $('nav-item-settings').addEventListener('click', openSettingsModal);
 }
 if ($('set-close')) {
-  $('set-close').addEventListener('click', () => {
-    $('settings-modal').style.display = 'none';
-  });
+  $('set-close').addEventListener('click', closeSettingsModal);
 }
 
 if ($('cfg-form')) {
