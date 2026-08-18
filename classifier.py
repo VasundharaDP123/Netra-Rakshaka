@@ -48,6 +48,14 @@ def classify_strain_rule_based(data):
 def classify_strain(data):
     global clf, scaler
     
+    # 0. Trust the ESP32 Hardware Fusion exactly 100% if it exists (Perfect Integration)
+    if "edge_ai_strain" in data:
+        level = data["edge_ai_strain"]
+        score = 0
+        if level == "Critical": score = 95
+        elif level == "Moderate": score = 50
+        return level, score
+
     # 1. Enforce Critical rule when blink rate < 8 bpm after 1 minute
     blink = data.get("blink_rate", 0)
     screen_time = data.get("continuous_screen_time_min", 0)
@@ -60,7 +68,7 @@ def classify_strain(data):
             # Extract features in the exact same order as training
             features = [
                 data["blink_rate"],
-                data["blink_duration_ms"],
+                data.get("blink_duration_ms", 200), # Fallback if hardware doesn't send it
                 data["eye_temp_celsius"],
                 data["screen_distance_cm"],
                 data["ambient_lux"],

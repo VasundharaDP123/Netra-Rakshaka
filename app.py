@@ -69,7 +69,7 @@ def get_active_sensor_data():
             if time.time() - rec_time < 30.0:
                 data_clean = {k: v for k, v in last_wifi_data.items() if not k.startswith("_")}
                 if "continuous_screen_time_min" not in data_clean:
-                    data_clean["continuous_screen_time_min"] = simulator_instance.continuous_screen_time_min
+                    data_clean["continuous_screen_time_min"] = 0
                 data_clean["_source"] = "WIFI"
                 return data_clean
 
@@ -82,16 +82,24 @@ def get_active_sensor_data():
             if time.time() - rec_time < 30.0:
                 data_clean = {k: v for k, v in data.items() if not k.startswith("_")}
                 if "continuous_screen_time_min" not in data_clean:
-                    data_clean["continuous_screen_time_min"] = simulator_instance.continuous_screen_time_min
+                    data_clean["continuous_screen_time_min"] = 0
                 data_clean["_source"] = "WIFI"
                 return data_clean
         except Exception:
             pass
 
-    # 3. Fall back to USB Serial or Simulator
-    data = simulator_instance.get_data()
-    data["_source"] = "SERIAL" if simulator_instance.use_hardware else "SIMULATOR"
-    return data
+    # 3. ABSOLUTELY NO SIMULATOR ALLOWED! Return zeros if hardware is blocked.
+    return {
+        "blink_rate": 0,
+        "blink_count": 0,
+        "screen_distance_cm": 0,
+        "eye_temp_celsius": 0.0,
+        "ambient_lux": 0,
+        "room_humidity_pct": 0,
+        "head_tilt_degrees": 0,
+        "edge_ai_strain": "Safe",
+        "_source": "HARDWARE_DISCONNECTED"
+    }
 
 last_print_time = 0
 last_warn_time = 0

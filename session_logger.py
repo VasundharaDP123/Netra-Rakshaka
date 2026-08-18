@@ -22,13 +22,13 @@ def log_data(data, strain_level, strain_score):
         writer = csv.writer(f)
         writer.writerow([
             time.strftime("%Y-%m-%d %H:%M:%S"),
-            data["blink_rate"],
-            data["blink_duration_ms"],
-            data["eye_temp_celsius"],
-            data["screen_distance_cm"],
-            data["ambient_lux"],
-            data["room_humidity_pct"],
-            data["head_tilt_degrees"],
+            data.get("blink_rate", 0),
+            data.get("blink_duration_ms", 200),
+            data.get("eye_temp_celsius", 0.0),
+            data.get("screen_distance_cm", 0),
+            data.get("ambient_lux", 0),
+            data.get("room_humidity_pct", 50.0),
+            data.get("head_tilt_degrees", 0),
             strain_level,
             strain_score
         ])
