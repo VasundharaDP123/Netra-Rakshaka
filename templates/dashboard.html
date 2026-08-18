@@ -39,8 +39,11 @@
 
 <div class="app">
 
+  <!-- Ambient Corner Strain Ring/Dot Indicator (Glanceable, non-intrusive) -->
+  <div id="corner-strain-dot" title="Strain: Safe (12/100)" style="position:fixed; top:14px; right:14px; z-index:999999; width:14px; height:14px; border-radius:50%; background:#35c98a; box-shadow:0 0 12px rgba(53,201,138,0.8); cursor:pointer; transition:all 0.4s ease; border:2px solid rgba(255,255,255,0.2);"></div>
+
   <!-- Floating On-Dashboard Critical Notification Container -->
-  <div id="notification-container" style="position:fixed; top:20px; right:24px; z-index:99999; display:flex; flex-direction:column; gap:10px; max-width:420px; width:100%; pointer-events:none;"></div>
+  <div id="notification-container" style="position:fixed; top:40px; right:24px; z-index:99999; display:flex; flex-direction:column; gap:10px; max-width:420px; width:100%; pointer-events:none;"></div>
 
   <!-- ═══════════════ Topbar ═══════════════ -->
   <header class="topbar">

@@ -463,6 +463,16 @@ function render() {
   const st = STATUS[f.level] || STATUS.Safe;
   document.body.dataset.state = st.key;
 
+  /* Ambient Corner Strain Ring/Dot Indicator update */
+  const cornerDot = $('corner-strain-dot');
+  if (cornerDot) {
+    const dotColor = f.level === 'Critical' ? '#ef5d6f' : (f.level === 'Moderate' ? '#e8a33d' : '#35c98a');
+    const dotGlow = f.level === 'Critical' ? '0 0 16px rgba(239,93,111,0.9)' : (f.level === 'Moderate' ? '0 0 12px rgba(232,163,61,0.8)' : '0 0 12px rgba(53,201,138,0.8)');
+    cornerDot.style.background = dotColor;
+    cornerDot.style.boxShadow = dotGlow;
+    cornerDot.title = `Strain State: ${f.level} (${f.score}/100)`;
+  }
+
   /* Update scenario buttons to reflect active telemetry strain state */
   const activeBtnId = f.level === 'Critical' ? 'btn-Critical' : (f.level === 'Moderate' ? 'btn-Degrading' : 'btn-Normal');
   document.querySelectorAll('.seg').forEach(b => b.setAttribute('aria-selected', b.id === activeBtnId ? 'true' : 'false'));
@@ -587,6 +597,7 @@ function render() {
     lastLevel = f.level;
   }
   evaluateBreaches(f);
+  checkDeepWorkAutoSuggest(f);
 
   /* Sustained Critical enforces a break, the same rule screen_control.py uses.
      Packets from the backend simulator are excluded: with no spectacles attached
@@ -1113,4 +1124,83 @@ function showDashboardNotification(title, message, type = 'crit') {
       setTimeout(() => toast.remove(), 300);
     }
   }, 6000);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Intelligent Deep Work Auto-Suggestion Engine
+   ══════════════════════════════════════════════════════════════════════════ */
+let steadyFocusSamples = 0;
+let deepWorkAutoSuggested = false;
+
+function checkDeepWorkAutoSuggest(f) {
+  if (deepWorkActive || deepWorkAutoSuggested) return;
+
+  const isDistanceSteady = f.dist >= 30 && f.dist <= 65;
+  const isTiltSteady = f.tilt <= 20;
+
+  if (isDistanceSteady && isTiltSteady && f.session >= 1) {
+    steadyFocusSamples++;
+    if (steadyFocusSamples >= 50) {
+      deepWorkAutoSuggested = true;
+      suggestDeepWorkToast();
+    }
+  } else {
+    steadyFocusSamples = Math.max(0, steadyFocusSamples - 1);
+  }
+}
+
+function suggestDeepWorkToast() {
+  const container = $('notification-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    pointer-events: auto;
+    background: #101a2c;
+    border: 1px solid rgba(77,141,255,0.4);
+    border-radius: 12px;
+    padding: 16px 18px;
+    color: #e5e9f0;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.3s ease;
+  `;
+
+  toast.innerHTML = `
+    <div style="display:flex; align-items:flex-start; gap:12px;">
+      <div style="width:32px; height:32px; border-radius:50%; background:rgba(77,141,255,0.2); display:flex; align-items:center; justify-content:center; color:#4d8dff; flex-shrink:0;">
+        <svg class="ic ic-sm"><use href="#i-target"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:13px; font-weight:700; color:#fff;">🧠 Steady Focus State Detected</div>
+        <div style="font-size:12px; color:#a0acc0; line-height:1.4; margin-top:2px;">You've maintained steady posture & viewing distance. Enable Deep Work Mode to silence routine alert nags and preserve your flow state?</div>
+      </div>
+      <button onclick="this.closest('div').parentElement.remove()" style="background:transparent; border:none; color:#97a1b2; font-size:18px; cursor:pointer;">&times;</button>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:4px;">
+      <button id="btn-suggest-dw-accept" style="background:#4d8dff; color:#fff; border:none; border-radius:6px; padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer;">Enable Deep Work (25m)</button>
+      <button id="btn-suggest-dw-decline" style="background:#1c2536; color:#97a1b2; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:8px 12px; font-size:12px; cursor:pointer;">Not Now</button>
+    </div>
+  `;
+
+  container.appendChild(toast);
+
+  const acceptBtn = toast.querySelector('#btn-suggest-dw-accept');
+  const declineBtn = toast.querySelector('#btn-suggest-dw-decline');
+
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', () => {
+      startDeepWork(25);
+      toast.remove();
+    });
+  }
+  if (declineBtn) {
+    declineBtn.addEventListener('click', () => toast.remove());
+  }
+
+  setTimeout(() => {
+    if (toast.parentElement) toast.remove();
+  }, 12000);
 }
