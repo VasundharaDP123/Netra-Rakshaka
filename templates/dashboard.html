@@ -474,7 +474,7 @@
 </div>
 
 <!-- ═══════════════ Full-Screen Health Analytics Dashboard Page ═══════════════ -->
-<div id="analytics-modal" style="display:none; position:fixed; inset:0; z-index:9999; width:100vw; height:100vh; background:#0b0e14; overflow-y:auto; padding:32px 48px; color:#e5e9f0; box-sizing:border-box;">
+<div id="analytics-modal" style="display:none; position:fixed; inset:0; z-index:9999999; width:100vw; height:100vh; background:#0b0e14; overflow-y:auto; padding:32px 48px; color:#e5e9f0; box-sizing:border-box;">
   <div style="max-width:1400px; margin:0 auto; width:100%;">
     <!-- Top Header -->
     <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:20px; margin-bottom:28px;">
@@ -678,14 +678,15 @@
       </div>
     </div>
 
-    <!-- Compliance Action Buttons -->
-    <div style="display:flex; gap:16px; justify-content:center;">
-      <button id="btn-202020-comply" style="background:#35c98a; color:#0b1d14; border:none; border-radius:10px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 6px 20px rgba(53,201,138,0.3);">I Looked Away (Complied)</button>
-      <button id="btn-202020-skip" style="background:#1e2638; color:#97a1b2; border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:14px 24px; font-size:14px; font-weight:600; cursor:pointer;">Skip Break</button>
+    <!-- Compliance & Focus Action Buttons -->
+    <div style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+      <button id="btn-202020-comply" style="background:#35c98a; color:#0b1d14; border:none; border-radius:10px; padding:14px 28px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 6px 20px rgba(53,201,138,0.3);">I Looked Away (Complied)</button>
+      <button id="btn-202020-dw" style="background:#4d8dff; color:#fff; border:none; border-radius:10px; padding:14px 24px; font-size:14px; font-weight:600; cursor:pointer; box-shadow:0 6px 20px rgba(77,141,255,0.3);">Start Deep Work (25m)</button>
+      <button id="btn-202020-skip" style="background:#1e2638; color:#97a1b2; border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:14px 20px; font-size:14px; font-weight:600; cursor:pointer;">Skip Break</button>
     </div>
   </div>
 </div>
 
-<script src="/static/js/dashboard.js?v=5"></script>
+<script src="/static/js/dashboard.js?v=6"></script>
 </body>
 </html>

@@ -709,59 +709,68 @@ function recordLiveTelemetry(d) {
 
 function renderLiveAnalytics(windowType = 'daily') {
   currentAnalyticsWindow = windowType;
-  $('an-tab-daily').style.background = windowType === 'daily' ? 'var(--accent)' : '#1e2638';
-  $('an-tab-daily').style.color = windowType === 'daily' ? '#fff' : '#97a1b2';
-  $('an-tab-weekly').style.background = windowType === 'weekly' ? 'var(--accent)' : '#1e2638';
-  $('an-tab-weekly').style.color = windowType === 'weekly' ? '#fff' : '#97a1b2';
+  if ($('an-tab-daily')) {
+    $('an-tab-daily').style.background = windowType === 'daily' ? 'var(--accent)' : '#1e2638';
+    $('an-tab-daily').style.color = windowType === 'daily' ? '#fff' : '#97a1b2';
+  }
+  if ($('an-tab-weekly')) {
+    $('an-tab-weekly').style.background = windowType === 'weekly' ? 'var(--accent)' : '#1e2638';
+    $('an-tab-weekly').style.color = windowType === 'weekly' ? '#fff' : '#97a1b2';
+  }
 
-  // 1. Fetch DB persistent analytics first
+  const updateUI = (screenTime, avgBpm, distComp, breaksTaken, safePct, modPct, critPct) => {
+    if ($('an-screen-time')) $('an-screen-time').textContent = screenTime + ' min';
+    if ($('an-avg-bpm')) $('an-avg-bpm').textContent = avgBpm + ' bpm';
+    if ($('an-dist-comp')) $('an-dist-comp').textContent = distComp + '%';
+    if ($('an-breaks')) $('an-breaks').textContent = breaksTaken;
+
+    if ($('bar-safe')) $('bar-safe').style.width = safePct + '%';
+    if ($('bar-mod')) $('bar-mod').style.width = modPct + '%';
+    if ($('bar-crit')) $('bar-crit').style.width = critPct + '%';
+
+    if ($('pct-safe')) $('pct-safe').textContent = safePct;
+    if ($('pct-mod')) $('pct-mod').textContent = modPct;
+    if ($('pct-crit')) $('pct-crit').textContent = critPct;
+  };
+
+  // 1. Compute from live session buffer first if available
+  let liveBpm = 0, liveDistComp = 100, liveScreenTime = ((Date.now() - startTime) / 60000).toFixed(1);
+  let liveSafe = 100, liveMod = 0, liveCrit = 0;
+
+  if (liveSessionBuffer.length > 0) {
+    const buf = liveSessionBuffer;
+    const sumBpm = buf.reduce((a, b) => a + (b.bpm || 0), 0);
+    liveBpm = (sumBpm / buf.length).toFixed(1);
+
+    const compDist = buf.filter(b => b.dist >= 20).length;
+    liveDistComp = ((compDist / buf.length) * 100).toFixed(1);
+
+    const safeCount = buf.filter(b => b.strain_level === 'Safe').length;
+    const modCount = buf.filter(b => b.strain_level === 'Moderate').length;
+    const critCount = buf.filter(b => b.strain_level === 'Critical').length;
+
+    liveSafe = ((safeCount / buf.length) * 100).toFixed(1);
+    liveMod = ((modCount / buf.length) * 100).toFixed(1);
+    liveCrit = ((critCount / buf.length) * 100).toFixed(1);
+  }
+
+  // Render live buffer immediately
+  updateUI(liveScreenTime, liveBpm, liveDistComp, breakCount, liveSafe, liveMod, liveCrit);
+
+  // 2. Fetch DB persistent analytics asynchronously
   fetch(`/api/analytics?window=${windowType}`)
     .then(r => r.json())
     .then(dbData => {
-      let totalSamples = liveSessionBuffer.length;
-      let avgBpm = dbData.average_bpm;
-      let distComp = dbData.distance_compliance_pct;
-      let screenTime = dbData.total_screen_time_min;
-      let breaksTaken = dbData.total_breaks_taken || breakCount;
-      let safePct = dbData.strain_breakdown ? dbData.strain_breakdown.safe_pct : 100;
-      let modPct = dbData.strain_breakdown ? dbData.strain_breakdown.moderate_pct : 0;
-      let critPct = dbData.strain_breakdown ? dbData.strain_breakdown.critical_pct : 0;
-
-      // 2. If live sensor packets exist in buffer, compute live metrics directly from live telemetry!
-      if (liveSessionBuffer.length > 0) {
-        const buf = liveSessionBuffer;
-        const sumBpm = buf.reduce((a, b) => a + b.bpm, 0);
-        avgBpm = (sumBpm / buf.length).toFixed(1);
-
-        const compDist = buf.filter(b => b.dist >= 20).length;
-        distComp = ((compDist / buf.length) * 100).toFixed(1);
-
-        // Screen time from session start or active live count
-        const liveSecs = (Date.now() - startTime) / 1000;
-        screenTime = (liveSecs / 60).toFixed(1);
-
-        const safeCount = buf.filter(b => b.strain_level === 'Safe').length;
-        const modCount = buf.filter(b => b.strain_level === 'Moderate').length;
-        const critCount = buf.filter(b => b.strain_level === 'Critical').length;
-
-        safePct = ((safeCount / buf.length) * 100).toFixed(1);
-        modPct = ((modCount / buf.length) * 100).toFixed(1);
-        critPct = ((critCount / buf.length) * 100).toFixed(1);
+      if (liveSessionBuffer.length === 0 && dbData) {
+        const avgBpm = dbData.average_bpm || 0;
+        const distComp = dbData.distance_compliance_pct || 100;
+        const screenTime = dbData.total_screen_time_min || 0;
+        const breaksTaken = dbData.total_breaks_taken || 0;
+        const safePct = dbData.strain_breakdown ? dbData.strain_breakdown.safe_pct : 100;
+        const modPct = dbData.strain_breakdown ? dbData.strain_breakdown.moderate_pct : 0;
+        const critPct = dbData.strain_breakdown ? dbData.strain_breakdown.critical_pct : 0;
+        updateUI(screenTime, avgBpm, distComp, breaksTaken, safePct, modPct, critPct);
       }
-
-      // Update Live Modal UI Elements
-      $('an-screen-time').textContent = screenTime + ' min';
-      $('an-avg-bpm').textContent = avgBpm + ' bpm';
-      $('an-dist-comp').textContent = distComp + '%';
-      $('an-breaks').textContent = breaksTaken;
-
-      $('bar-safe').style.width = safePct + '%';
-      $('bar-mod').style.width = modPct + '%';
-      $('bar-crit').style.width = critPct + '%';
-
-      $('pct-safe').textContent = safePct;
-      $('pct-mod').textContent = modPct;
-      $('pct-crit').textContent = critPct;
     })
     .catch(() => {});
 }
@@ -911,6 +920,15 @@ if ($('btn-202020-skip')) {
     recordCompliance('skipped');
     $('modal-202020').style.display = 'none';
     reset202020Timer();
+  });
+}
+if ($('btn-202020-dw')) {
+  $('btn-202020-dw').addEventListener('click', () => {
+    if (t20ModalTimer) clearInterval(t20ModalTimer);
+    recordCompliance('skipped');
+    $('modal-202020').style.display = 'none';
+    reset202020Timer();
+    startDeepWork(25);
   });
 }
 
