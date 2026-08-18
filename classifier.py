@@ -24,20 +24,18 @@ if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
         print(f"[AI ENGINE] Error loading model/scaler: {e}")
 
 def classify_strain_rule_based(data):
+    blink = data.get("blink_rate", 0)
+    screen_time = data.get("continuous_screen_time_min", 0)
+    # Only enforce Critical for blink_rate < 8 after 1 minute of session time
+    if screen_time >= 1 and blink < 8:
+        return "Critical", 95
+
     score = 0
-
-    if data["blink_rate"] < 6:       score += 40
-    elif data["blink_rate"] < 10:    score += 20
-
     if data["screen_distance_cm"] < 20:   score += 25
     elif data["screen_distance_cm"] < 30: score += 10
-
     if data["eye_temp_celsius"] < 34.0:  score += 15
-
     if data["room_humidity_pct"] < 28:   score += 10
-
     if data["ambient_lux"] < 100:        score += 10
-
     if data["head_tilt_degrees"] > 35:   score += 10
 
     if score >= 60:   
@@ -49,6 +47,12 @@ def classify_strain_rule_based(data):
 
 def classify_strain(data):
     global clf, scaler
+    
+    # 1. Enforce Critical rule when blink rate < 8 bpm after 1 minute
+    blink = data.get("blink_rate", 0)
+    screen_time = data.get("continuous_screen_time_min", 0)
+    if screen_time >= 1 and blink < 8:
+        return "Critical", 95
     
     # If the model and scaler are loaded, use them for ML classification
     if clf is not None and scaler is not None:

@@ -3,226 +3,594 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Netra Rakshaka — Live Biometric Monitor</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/dashboard.css">
+<title>Netra Rakshaka — Live Biometrics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/dashboard.css?v=5">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
-<body>
+<body data-state="safe">
+
+<!-- Icon sprite: one stroke weight, one grid, referenced with <use> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1.8 12S5.3 5.5 12 5.5 22.2 12 22.2 12 18.7 18.5 12 18.5 1.8 12 1.8 12z"/><circle cx="12" cy="12" r="3.2"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M21 12h-4l-3 8-4-16-3 8H3"/></symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 8h18v8H3z"/><path d="M7 8v3M11 8v3M15 8v3M19 8v3"/></symbol>
+  <symbol id="i-thermo" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7 6.6 8.9a7.2 7.2 0 1 0 10.8 0L12 2.7z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M19.1 4.9l-1.5 1.5M6.4 17.6l-1.5 1.5"/></symbol>
+  <symbol id="i-posture" viewBox="0 0 24 24"><circle cx="12" cy="5.4" r="2.6"/><path d="M9 21v-5l-1.6-4.2A4 4 0 0 1 11.2 9h1.6a4 4 0 0 1 3.8 2.8L15 16v5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3.2 2"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4.2 9.5a11 11 0 0 1 15.6 0M7.4 13a6.5 6.5 0 0 1 9.2 0"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 16.5v.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.2 12.3l2.6 2.6 5-5.4"/></symbol>
+  <symbol id="i-warn-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4.5M12 15.8v.01"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8.6a6 6 0 1 0-12 0c0 6-2 7.4-2 7.4h16s-2-1.4-2-7.4"/><path d="M10.3 19.5a2 2 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2.8 2.6 7.4 12 12l9.4-4.6L12 2.8z"/><path d="M2.6 12.6 12 17.2l9.4-4.6M2.6 17.4 12 22l9.4-4.6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.6 4.5 5.6v6c0 4.6 3.2 7.9 7.5 9.8 4.3-1.9 7.5-5.2 7.5-9.8v-6L12 2.6z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14.5V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V7.5A1.5 1.5 0 0 1 5 6h4.5"/></symbol>
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M4 20s-.6-8 4.4-12.4C12 4.4 20 4 20 4s.4 8-3.6 11.6C12 19.4 4 20 4 20z"/><path d="M4 20 20 4"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.6 17.5a9 9 0 1 1 14.8 0"/><path d="M12 12l4-3"/></symbol>
+</defs></svg>
+
 <div class="app">
 
-  <!-- TOPBAR -->
+  <!-- ═══════════════ Topbar ═══════════════ -->
   <header class="topbar">
-    <div class="logo">
-      <div class="logo-eye">👁</div>
-      Netra Rakshaka
+    <div class="brand">
+      <span class="brand-mark"><svg class="ic ic-lg"><use href="#i-eye"/></svg></span>
+      <span class="brand-text">
+        <span class="brand-name">Netra Rakshaka</span>
+        <span class="brand-sub"><span class="brand-deva">नेत्र रक्षक</span> · Vision Guardian</span>
+      </span>
     </div>
 
-    <div class="scenario-tabs">
-      <button class="stab s-baseline active" id="btn-Normal" onclick="setScenario('Normal', this)">● Healthy Baseline</button>
-      <button class="stab s-fatigue" id="btn-Degrading" onclick="setScenario('Degrading', this)">◐ Gradual Fatigue</button>
-      <button class="stab s-critical" id="btn-Critical" onclick="setScenario('Critical', this)">⚠ Critical Attack</button>
-    </div>
+    <div class="divider-v"></div>
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <span>Monitoring</span><span>/</span><b>Live Biometrics</b>
+    </nav>
 
-    <div class="top-right">
-      <div class="conn-badge" id="conn-badge"><div class="conn-dot"></div><span id="conn-text">Connecting...</span></div>
-      <div class="time-badge" id="clock">--:--:--</div>
+    <div class="topbar-right">
+      <span class="tag" id="feed-tag"><svg class="ic ic-sm"><use href="#i-cpu"/></svg><span id="feed-text">Simulation feed</span></span>
+      <span class="tag" id="conn-badge"><span class="dot"></span><span id="conn-text">Connecting…</span></span>
+      <span class="tag"><svg class="ic ic-sm"><use href="#i-clock"/></svg><span class="num" id="clock">--:--:--</span></span>
     </div>
   </header>
 
-  <!-- SIDEBAR -->
+  <!-- ═══════════════ Sidebar ═══════════════ -->
   <aside class="sidebar">
-    <div class="sidebar-section-label">Monitor</div>
-    <div class="slink active"><span class="si">📊</span> Live Biometrics</div>
-    <div class="slink"><span class="si">📈</span> Session History</div>
-    <div class="slink"><span class="si">🔔</span> Interventions</div>
+    <div class="nav-label">Monitoring</div>
+    <div class="nav-item" aria-current="page"><svg class="ic"><use href="#i-activity"/></svg><span>Live Biometrics</span></div>
+    <div class="nav-item" id="nav-item-history" style="cursor:pointer;"><svg class="ic"><use href="#i-list"/></svg><span>Session History</span><span class="count" id="nav-samples">0</span></div>
+    <div class="nav-item" id="nav-item-analytics" style="cursor:pointer;"><svg class="ic"><use href="#i-gauge"/></svg><span>Health Analytics</span><span class="count" style="background:var(--accent);">Report</span></div>
+    <div class="nav-item" id="nav-item-settings" style="cursor:pointer;"><svg class="ic"><use href="#i-bell"/></svg><span>Configuration</span><span class="count" id="nav-breaks">0</span></div>
 
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-label">Hardware</div>
-    <div class="slink"><span class="si">🔴</span> IR Blink Sensor</div>
-    <div class="slink"><span class="si">🌡</span> Thermal Array</div>
-    <div class="slink"><span class="si">📡</span> ToF Distance</div>
-    <div class="slink"><span class="si">🧭</span> IMU / Posture</div>
-    <div class="slink"><span class="si">💧</span> Env. Sensors</div>
+    <div class="nav-sep"></div>
+    <div class="nav-label">Device</div>
+    <div class="nav-item" id="dev-esp" data-name="ESP32-S3"><svg class="ic"><use href="#i-cpu"/></svg><span>ESP32-S3 Spectacles</span><span class="state-dot idle"></span></div>
+    <div class="nav-item" id="dev-tof" data-name="VL53L0X"><svg class="ic"><use href="#i-ruler"/></svg><span>VL53L0X Distance</span><span class="state-dot idle"></span></div>
+    <div class="nav-item" id="dev-bmp" data-name="BMP280"><svg class="ic"><use href="#i-thermo"/></svg><span>BMP280 Thermal</span><span class="state-dot idle"></span></div>
+    <div class="nav-item" id="dev-bh" data-name="BH1750"><svg class="ic"><use href="#i-sun"/></svg><span>BH1750 Lux</span><span class="state-dot idle"></span></div>
+    <div class="nav-item" id="dev-mpu" data-name="MPU6050"><svg class="ic"><use href="#i-posture"/></svg><span>MPU6050 IMU</span><span class="state-dot idle"></span></div>
 
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-label">AI Models</div>
-    <div class="slink"><span class="si">⚡</span> TinyML CNN (Edge)</div>
-    <div class="slink"><span class="si">☁</span> LSTM Risk (Cloud)</div>
+    <div class="nav-sep"></div>
+    <div class="nav-label">Intelligence</div>
+    <div class="nav-item"><svg class="ic"><use href="#i-layers"/></svg><span>Random Forest</span></div>
+    <div class="nav-item"><svg class="ic"><use href="#i-gauge"/></svg><span>LSTM Forecast</span></div>
+    <div class="nav-item"><svg class="ic"><use href="#i-shield"/></svg><span>Screen Actuation</span></div>
 
-    <div class="sys-info">
-      <div class="sys-row"><span class="sys-key">Firmware</span><span class="sys-val">v2.0.4</span></div>
-      <div class="sys-row"><span class="sys-key">Model</span><span class="sys-val">CNN-1D r3</span></div>
-      <div class="sys-row"><span class="sys-key">Uptime</span><span class="sys-val" id="uptime">00:00</span></div>
-      <div class="sys-row"><span class="sys-key">Packets</span><span class="sys-val" id="packets">0</span></div>
+    <div class="build">
+      <div class="build-row"><span class="build-k">Firmware</span><span class="build-v">v2.0.4</span></div>
+      <div class="build-row"><span class="build-k">Classifier</span><span class="build-v">RF · 7f</span></div>
+      <div class="build-row"><span class="build-k">Sample rate</span><span class="build-v">5 Hz</span></div>
+      <div class="build-row"><span class="build-k">I²C bus</span><span class="build-v" id="sys-i2c">—</span></div>
+      <div class="build-row"><span class="build-k">Uptime</span><span class="build-v" id="uptime">00:00</span></div>
     </div>
   </aside>
 
-  <!-- MAIN -->
+  <!-- ═══════════════ Main ═══════════════ -->
   <main class="main">
+    <div class="page">
 
-    <!-- Alert strip -->
-    <div class="alert-strip ok" id="alert">
-      <div class="alert-icon" id="alert-icon">✅</div>
-      <div>
-        <div class="alert-msg" id="alert-msg">All biometric markers within healthy range</div>
-        <div class="alert-sub" id="alert-sub">No intervention required · AI confidence 98.2%</div>
-      </div>
-    </div>
-
-    <!-- Stat cards -->
-    <div class="cards-row">
-
-      <!-- Eye Strain -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-label">Eye Strain Score</span>
-          <span class="card-icon">🎯</span>
+      <!-- Page header -->
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Live Biometrics</h1>
+          <div class="page-desc">Real-time ocular strain telemetry and 20-20-20 enforcement · camera-free sensor fusion</div>
         </div>
-        <div class="gauge-wrap">
-          <svg class="gauge-svg" width="64" height="64" viewBox="0 0 64 64">
-            <circle cx="32" cy="32" r="26" fill="none" stroke="var(--dim)" stroke-width="6"/>
-            <circle id="gauge-arc" cx="32" cy="32" r="26" fill="none" stroke="var(--green)"
-              stroke-width="6" stroke-linecap="round"
-              stroke-dasharray="163.4" stroke-dashoffset="163.4"
-              style="transform-origin:center;transform:rotate(-90deg);transition:stroke-dashoffset 1s ease,stroke 0.5s"/>
+        <div class="page-tools">
+          <span class="field-label">Scenario</span>
+          <div class="segmented" role="tablist" aria-label="Scenario">
+            <button class="seg s-ok" id="btn-Normal" role="tab" aria-selected="true"><span class="dot"></span>Baseline</button>
+            <button class="seg s-warn" id="btn-Degrading" role="tab" aria-selected="false"><span class="dot"></span>Fatigue</button>
+            <button class="seg s-crit" id="btn-Critical" role="tab" aria-selected="false"><span class="dot"></span>Critical</button>
+          </div>
+          <a class="btn" href="/api/history?limit=200" target="_blank" rel="noopener">
+            <svg class="ic ic-sm"><use href="#i-external"/></svg>Raw data
+          </a>
+        </div>
+      </div>
+
+      <!-- Deep Work Mode & 20-20-20 Baseline Control Panel -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+        <!-- Deep Work Card -->
+        <div class="card" id="dw-card" style="padding:14px 18px; display:flex; flex-direction:column; justify-content:center; background:#141b29; border:1px solid rgba(255,255,255,0.08); transition:all 0.3s ease;">
+          <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="width:38px; height:38px; border-radius:50%; background:rgba(77,141,255,0.15); display:flex; align-items:center; justify-content:center; color:var(--accent);" id="dw-icon-box">
+                <svg class="ic ic-lg"><use href="#i-shield"/></svg>
+              </div>
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#e5e9f0;" id="dw-title">Deep Work Mode</div>
+                <div style="font-size:11px; color:#97a1b2;" id="dw-desc">25-min focus session · silences intrusive alerts</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div id="dw-timer-display" style="display:none; font-family:'JetBrains Mono'; font-weight:600; font-size:14px; color:#35c98a; margin-right:6px;">25:00</div>
+              <button id="btn-dw-start" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer;">Start Deep Work</button>
+              <button id="btn-dw-extend" style="display:none; background:#1e2738; color:#4d8dff; border:1px solid #304060; border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">+25 Min</button>
+              <button id="btn-dw-stop" style="display:none; background:rgba(239,93,111,0.15); color:#ef5d6f; border:1px solid rgba(239,93,111,0.3); border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;">End Session</button>
+            </div>
+          </div>
+          <!-- Red Emergency Breakthrough Alert Banner (Hidden by default) -->
+          <div id="dw-breakthrough-banner" style="display:none; margin-top:10px; padding:8px 12px; background:rgba(239,93,111,0.2); border:1px solid #ef5d6f; border-radius:6px; color:#ef5d6f; font-size:11px; font-weight:600; align-items:center; gap:8px;">
+            <svg class="ic ic-sm"><use href="#i-alert"/></svg>
+            <span>🚨 CRITICAL STRAIN BREAKTHROUGH: Severe ocular strain detected during Deep Work!</span>
+          </div>
+        </div>
+
+        <!-- 20-20-20 Baseline Countdown Card -->
+        <div class="card" style="padding:14px 18px; display:flex; align-items:center; justify-content:space-between; background:#141b29; border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:38px; height:38px; border-radius:50%; background:rgba(53,201,138,0.15); display:flex; align-items:center; justify-content:center; color:#35c98a;">
+              <svg class="ic ic-lg"><use href="#i-clock"/></svg>
+            </div>
+            <div>
+              <div style="font-size:13px; font-weight:600; color:#e5e9f0;">20-20-20 Baseline Timer</div>
+              <div style="font-size:11px; color:#97a1b2;">Active screen timer · gentle visual rest</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="font-family:'JetBrains Mono'; font-weight:600; font-size:16px; color:#e5e9f0;" id="t20-timer">20:00</div>
+            <span class="status-chip ok" id="t20-status" style="font-size:11px;">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status bar -->
+      <div class="statusbar" id="statusbar">
+        <svg class="ic ic-lg" id="status-icon"><use href="#i-check" id="status-icon-use"/></svg>
+        <div class="status-text">
+          <div class="status-title" id="status-title">All ocular markers within healthy range</div>
+          <div class="status-desc" id="status-desc">No intervention required · tear film stable</div>
+        </div>
+        <div class="status-meta">
+          <div class="meta-cell">
+            <div class="meta-k">Strain</div>
+            <div class="meta-v" id="meta-score">0</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-k">Samples</div>
+            <div class="meta-v" id="meta-samples">0</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-k">Updated</div>
+            <div class="meta-v" id="meta-updated">--:--:--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 1 -->
+      <section class="row-primary">
+
+        <div class="card">
+          <div class="card-head">
+            <svg class="ic ic-sm" style="color:var(--faint)"><use href="#i-gauge"/></svg>
+            <span class="card-title">Ocular Strain Index</span>
+            <span class="right"><span class="card-sub">0–100</span></span>
+          </div>
+          <div class="card-body">
+            <div class="score-body">
+              <div class="gauge">
+                <svg viewBox="0 0 150 150">
+                  <g id="gauge-ticks"></g>
+                  <g transform="rotate(-90 75 75)">
+                    <circle class="gauge-track" cx="75" cy="75" r="60"/>
+                    <circle class="gauge-arc" id="gauge-arc" cx="75" cy="75" r="60"
+                            stroke-dasharray="377" stroke-dashoffset="377"/>
+                  </g>
+                  <circle class="iris-body" cx="75" cy="75" r="40"/>
+                  <g class="iris-fibers" id="iris-fibers"></g>
+                  <circle class="iris-pupil" id="iris-pupil" cx="75" cy="75" r="32"/>
+                </svg>
+                <div class="gauge-center">
+                  <div class="gauge-value" id="strain-num">0</div>
+                  <div class="gauge-scale">INDEX</div>
+                </div>
+              </div>
+              <div class="score-meta">
+                <span class="badge" id="state-badge"><span class="dot"></span><span id="state-text">Optimal</span></span>
+                <div class="score-note" id="score-note">Blink rate, viewing distance and posture are all inside their reference bands.</div>
+                <div class="score-model">
+                  <svg class="ic ic-sm"><use href="#i-layers"/></svg>
+                  <span>Random Forest · 7 features · <span id="model-conf">98.2</span>% confidence</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <svg class="ic ic-sm" style="color:var(--faint)"><use href="#i-activity"/></svg>
+            <span class="card-title">Risk Contribution</span>
+            <span class="right"><span class="card-sub">share of current index</span></span>
+          </div>
+          <div class="card-body">
+            <div class="factors" id="factors">
+              <div class="factor" data-f="blink">
+                <span class="factor-name">Blink deficit</span>
+                <span class="factor-bar"><span class="factor-fill"></span></span>
+                <span class="factor-pct">0%</span>
+              </div>
+              <div class="factor" data-f="dist">
+                <span class="factor-name">Viewing proximity</span>
+                <span class="factor-bar"><span class="factor-fill"></span></span>
+                <span class="factor-pct">0%</span>
+              </div>
+              <div class="factor" data-f="posture">
+                <span class="factor-name">Neck flexion</span>
+                <span class="factor-bar"><span class="factor-fill"></span></span>
+                <span class="factor-pct">0%</span>
+              </div>
+              <div class="factor" data-f="light">
+                <span class="factor-name">Light stress</span>
+                <span class="factor-bar"><span class="factor-fill"></span></span>
+                <span class="factor-pct">0%</span>
+              </div>
+              <div class="factor" data-f="dryness">
+                <span class="factor-name">Tear film loss</span>
+                <span class="factor-bar"><span class="factor-fill"></span></span>
+                <span class="factor-pct">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- KPI row -->
+      <section class="kpis">
+        <div class="card kpi" id="kpi-blink">
+          <div class="kpi-head">
+            <svg class="ic ic-sm"><use href="#i-eye"/></svg>
+            <span class="kpi-label">Blink Rate</span>
+            <span class="kpi-delta" id="blink-delta">—</span>
+          </div>
+          <div class="kpi-main"><span class="kpi-value" id="blink-val">0</span><span class="kpi-unit">bpm</span></div>
+          <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polygon id="blink-spark-area" points=""/><polyline id="blink-spark" points=""/>
           </svg>
-          <div class="gauge-info">
-            <div class="gauge-num" id="strain-num" style="color:var(--green)">0</div>
-            <div class="gauge-label"><span class="badge green" id="strain-badge">OPTIMAL</span></div>
+          <div class="kpi-foot">
+            <span class="kpi-range">Reference 15–20 bpm</span>
+            <span class="status-chip" id="blink-chip">—</span>
           </div>
         </div>
-        <div class="card-sub">AI classification active</div>
+
+        <div class="card kpi" id="kpi-dist">
+          <div class="kpi-head">
+            <svg class="ic ic-sm"><use href="#i-ruler"/></svg>
+            <span class="kpi-label">Screen Distance</span>
+            <span class="kpi-delta" id="dist-delta">—</span>
+          </div>
+          <div class="kpi-main"><span class="kpi-value" id="dist-val">0</span><span class="kpi-unit">cm</span></div>
+          <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polygon id="dist-spark-area" points=""/><polyline id="dist-spark" points=""/>
+          </svg>
+          <div class="kpi-foot">
+            <span class="kpi-range">Threshold &gt; 30 cm</span>
+            <span class="status-chip" id="dist-chip">—</span>
+          </div>
+        </div>
+
+        <div class="card kpi" id="kpi-tilt">
+          <div class="kpi-head">
+            <svg class="ic ic-sm"><use href="#i-posture"/></svg>
+            <span class="kpi-label">Neck Flexion</span>
+            <span class="kpi-delta" id="tilt-delta">—</span>
+          </div>
+          <div class="kpi-main"><span class="kpi-value" id="tilt-val">0</span><span class="kpi-unit">deg</span></div>
+          <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polygon id="tilt-spark-area" points=""/><polyline id="tilt-spark" points=""/>
+          </svg>
+          <div class="kpi-foot">
+            <span class="kpi-range">Upright &lt; 20°</span>
+            <span class="status-chip" id="tilt-chip">—</span>
+          </div>
+        </div>
+
+        <div class="card kpi" id="kpi-lux">
+          <div class="kpi-head">
+            <svg class="ic ic-sm"><use href="#i-sun"/></svg>
+            <span class="kpi-label">Ambient Light</span>
+            <span class="kpi-delta" id="lux-delta">—</span>
+          </div>
+          <div class="kpi-main"><span class="kpi-value" id="lux-val">0</span><span class="kpi-unit">lx</span></div>
+          <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polygon id="lux-spark-area" points=""/><polyline id="lux-spark" points=""/>
+          </svg>
+          <div class="kpi-foot">
+            <span class="kpi-range">Comfort 150–600 lx</span>
+            <span class="status-chip" id="lux-chip">—</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 2 -->
+      <section class="row-charts">
+        <div class="card">
+          <div class="card-head">
+            <svg class="ic ic-sm" style="color:var(--faint)"><use href="#i-activity"/></svg>
+            <span class="card-title">Fatigue Trajectory</span>
+            <span class="right">
+              <span class="card-sub">last 60 samples</span>
+              <span class="legend">
+                <span class="legend-item"><span class="legend-swatch" style="background:var(--status)"></span>Strain index</span>
+                <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>Blink rate</span>
+              </span>
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap"><canvas id="chart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <svg class="ic ic-sm" style="color:var(--faint)"><use href="#i-list"/></svg>
+            <span class="card-title">Sensor Telemetry</span>
+          </div>
+          <div class="card-body flush">
+            <table class="data">
+              <thead>
+                <tr><th>Channel</th><th class="r">Value</th><th class="r">State</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-thermo"/></svg>Ocular surface temp</span></td>
+                  <td class="r val" id="t-eye">—</td><td class="r trend" id="tr-eye">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-drop"/></svg>Room humidity</span></td>
+                  <td class="r val" id="t-hum">—</td><td class="r trend" id="tr-hum">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-clock"/></svg>Blink duration</span></td>
+                  <td class="r val" id="t-bd">—</td><td class="r trend" id="tr-bd">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-eye"/></svg>Blinks this session</span></td>
+                  <td class="r val" id="t-bc">—</td><td class="r trend" id="tr-bc">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-thermo"/></svg>Room temperature</span></td>
+                  <td class="r val" id="t-room">—</td><td class="r trend" id="tr-room">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-clock"/></svg>Continuous screen time</span></td>
+                  <td class="r val" id="t-session">—</td><td class="r trend" id="tr-session">—</td>
+                </tr>
+                <tr>
+                  <td><span class="metric"><svg class="ic ic-sm"><use href="#i-shield"/></svg>Next enforced break</span></td>
+                  <td class="r val" id="t-break">—</td><td class="r trend" id="tr-break">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Event log -->
+      <section class="card">
+        <div class="card-head">
+          <svg class="ic ic-sm" style="color:var(--faint)"><use href="#i-bell"/></svg>
+          <span class="card-title">Event Log</span>
+          <span class="right"><span class="card-sub" id="log-count">0 events</span></span>
+        </div>
+        <div class="card-body flush">
+          <table class="data">
+            <thead>
+              <tr><th style="width:96px">Time</th><th style="width:120px">Severity</th><th>Event</th><th>Detail</th></tr>
+            </thead>
+            <tbody id="log-body">
+              <tr><td colspan="4" class="empty">No events recorded in this session yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="pagefoot">
+        <span>Netra Rakshaka · camera-free ocular telemetry · closed-loop screen actuation</span>
+        <span class="deva">दृष्टि रक्षा</span>
       </div>
 
-      <!-- Blink Rate -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-label">Blink Rate</span>
-          <span class="card-icon">👁</span>
-        </div>
-        <div class="card-big"><span id="blink-val" style="color:var(--blue)">17</span><span class="card-unit">bpm</span></div>
-        <div class="card-sub">IR sensor · target 15–20 bpm</div>
-        <div class="mini-bar"><div class="mini-fill" id="blink-bar" style="width:60%;background:var(--blue)"></div></div>
-      </div>
-
-      <!-- Screen Distance -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-label">Screen Distance</span>
-          <span class="card-icon">📏</span>
-        </div>
-        <div class="card-big"><span id="dist-val" style="color:var(--green)">45</span><span class="card-unit">cm</span></div>
-        <div class="card-sub">ToF sensor · safe &gt; 30 cm</div>
-        <div class="mini-bar"><div class="mini-fill" id="dist-bar" style="width:75%;background:var(--green)"></div></div>
-      </div>
-
-      <!-- Session Time -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-label">Session Time</span>
-          <span class="card-icon">⏱</span>
-        </div>
-        <div class="card-big"><span id="focus-val" style="color:var(--amber)">14</span><span class="card-unit">min</span></div>
-        <div class="card-sub" id="focus-sub">20-20-20 break due in 6 min</div>
-        <div class="mini-bar"><div class="mini-fill" id="focus-bar" style="width:23%;background:var(--amber)"></div></div>
-      </div>
     </div>
-
-    <!-- Bottom row: chart + telemetry -->
-    <div class="bottom-row">
-
-      <!-- Chart -->
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Fatigue Trajectory</div>
-            <div class="panel-sub">Rolling 60-second strain index · live from edge classifier</div>
-          </div>
-          <div class="chart-legend">
-            <div class="cl-item"><div class="cl-dot" style="background:var(--blue)"></div>Strain</div>
-            <div class="cl-item"><div class="cl-dot" style="background:var(--teal)"></div>Blink</div>
-          </div>
-        </div>
-        <div class="chart-container"><canvas id="chart"></canvas></div>
-      </div>
-
-      <!-- Telemetry -->
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Sensor Telemetry</div>
-            <div class="panel-sub">Environmental &amp; biometric array</div>
-          </div>
-        </div>
-        <div class="telem-grid">
-          <div class="telem-item">
-            <div class="telem-icon">🌡</div>
-            <div>
-              <div class="telem-name">Eye Temperature</div>
-              <div class="telem-value" id="t-eye">34.8°C</div>
-            </div>
-            <div class="telem-trend" id="tr-eye" style="color:var(--green)">↔ stable</div>
-          </div>
-          <div class="telem-item">
-            <div class="telem-icon">💧</div>
-            <div>
-              <div class="telem-name">Humidity</div>
-              <div class="telem-value" id="t-hum">51%</div>
-            </div>
-            <div class="telem-trend" id="tr-hum" style="color:var(--green)">↔ ok</div>
-          </div>
-          <div class="telem-item">
-            <div class="telem-icon">☀</div>
-            <div>
-              <div class="telem-name">Ambient Lux</div>
-              <div class="telem-value" id="t-lux">290 lx</div>
-            </div>
-            <div class="telem-trend" id="tr-lux" style="color:var(--green)">↔ ideal</div>
-          </div>
-          <div class="telem-item">
-            <div class="telem-icon">🧭</div>
-            <div>
-              <div class="telem-name">Posture Tilt (IMU)</div>
-              <div class="telem-value" id="t-tilt">5°</div>
-            </div>
-            <div class="telem-trend" id="tr-tilt" style="color:var(--green)">↔ upright</div>
-          </div>
-          <div class="telem-item">
-            <div class="telem-icon">⏱</div>
-            <div>
-              <div class="telem-name">Blink Duration</div>
-              <div class="telem-value" id="t-bd">180 ms</div>
-            </div>
-            <div class="telem-trend" id="tr-bd" style="color:var(--green)">↔ normal</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
   </main>
 </div>
 
-<!-- INTERVENTION OVERLAY -->
-<div id="overlay">
-  <div class="ov-ring">
-    <svg width="140" height="140" viewBox="0 0 140 140">
-      <circle class="ov-ring-track" cx="70" cy="70" r="62"/>
-      <circle class="ov-ring-prog" id="ov-prog" cx="70" cy="70" r="62" stroke-dashoffset="0"/>
-    </svg>
-    <div class="ov-num" id="ov-num">20</div>
+<!-- ═══════════════ Enforced break modal ═══════════════ -->
+<div id="overlay" role="dialog" aria-modal="true" aria-labelledby="ov-title">
+  <div class="modal">
+    <div class="modal-head">
+      <svg class="ic ic-lg"><use href="#i-alert"/></svg>
+      <span class="modal-title" id="ov-title">Enforced Eye Break<span class="deva">नेत्र विश्राम</span></span>
+      <span class="modal-badge">Active</span>
+    </div>
+    <div class="modal-body">
+      <div class="ov-ring">
+        <svg width="104" height="104" viewBox="0 0 104 104">
+          <circle class="ov-track" cx="52" cy="52" r="45"/>
+          <circle class="ov-prog" id="ov-prog" cx="52" cy="52" r="45" stroke-dashoffset="0"/>
+        </svg>
+        <div class="ov-count num" id="ov-num">20</div>
+      </div>
+      <div class="modal-copy">
+        <div class="modal-lead">Critical strain sustained. Display brightness reduced and a 20-second recovery break is in progress.</div>
+        <div class="modal-note">Triggered by the strain classifier · logged to <span class="num">data/breaks_log.txt</span></div>
+      </div>
+    </div>
+    <div class="modal-steps">
+      <div class="modal-step">
+        <svg class="ic"><use href="#i-eye"/></svg>
+        <div class="step-t">Look away</div>
+        <div class="step-d">Shift your gaze off the display</div>
+      </div>
+      <div class="modal-step">
+        <svg class="ic"><use href="#i-leaf"/></svg>
+        <div class="step-t">Focus far</div>
+        <div class="step-d">Fix on an object ~20 feet away</div>
+      </div>
+      <div class="modal-step">
+        <svg class="ic"><use href="#i-drop"/></svg>
+        <div class="step-t">Rehydrate</div>
+        <div class="step-d">Blink slowly and fully, ten times</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <svg class="ic ic-sm"><use href="#i-shield"/></svg>
+      Break enforced by hardware intervention · cannot be dismissed
+    </div>
   </div>
-  <div class="ov-title">🛑 Mandatory Eye Break</div>
-  <div class="ov-sub">Critical strain detected by Netra Rakshaka AI.<br>Screen dimmed. Rest your eyes for 20 seconds.</div>
-  <div class="ov-instructions">
-    <div class="ov-step"><div class="ov-step-num">👁</div>Close your eyes<br>or look away</div>
-    <div class="ov-step"><div class="ov-step-num">🌿</div>Focus on something<br>20 feet away</div>
-    <div class="ov-step"><div class="ov-step-num">💧</div>Blink slowly<br>10 times</div>
-  </div>
-  <div class="ov-dismiss">Break enforced by hardware intervention · cannot be skipped</div>
 </div>
 
-<script src="/static/js/dashboard.js?v=3"></script>
+<!-- ═══════════════ Health Analytics Report Modal ═══════════════ -->
+<div id="analytics-modal" style="display:none; position:fixed; inset:0; z-index:9000; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" style="max-width:700px; width:100%; max-height:90vh; overflow-y:auto; background:#111622; border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:24px; color:#e5e9f0;">
+    <div style="display:flex; justify-size:space-between; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:20px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <svg class="ic ic-lg" style="color:var(--accent);"><use href="#i-gauge"/></svg>
+        <div>
+          <h2 style="font-size:20px; font-weight:600; margin:0;">Eye Health Analytics & Report</h2>
+          <div style="font-size:12px; color:#97a1b2;">SQLite DB Persistent Telemetry Summary</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button id="an-tab-daily" style="background:var(--accent); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer; font-weight:600;">Daily (24h)</button>
+        <button id="an-tab-weekly" style="background:#1e2638; color:#97a1b2; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer; font-weight:600;">Weekly (7d)</button>
+        <button id="an-close" style="background:transparent; color:#97a1b2; border:none; font-size:20px; cursor:pointer; margin-left:10px;">&times;</button>
+      </div>
+    </div>
+    
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:20px;">
+      <div style="background:#192030; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:11px; color:#97a1b2;">Screen Time</div>
+        <div id="an-screen-time" style="font-size:20px; font-weight:600; color:#4d8dff; margin-top:4px;">0.0 min</div>
+      </div>
+      <div style="background:#192030; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:11px; color:#97a1b2;">Avg Blink Rate</div>
+        <div id="an-avg-bpm" style="font-size:20px; font-weight:600; color:#35c98a; margin-top:4px;">0 bpm</div>
+      </div>
+      <div style="background:#192030; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:11px; color:#97a1b2;">Dist Compliance</div>
+        <div id="an-dist-comp" style="font-size:20px; font-weight:600; color:#e8a33d; margin-top:4px;">100%</div>
+      </div>
+      <div style="background:#192030; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:11px; color:#97a1b2;">Breaks Enforced</div>
+        <div id="an-breaks" style="font-size:20px; font-weight:600; color:#ef5d6f; margin-top:4px;">0</div>
+      </div>
+    </div>
+
+    <div style="background:#161c2b; padding:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); margin-bottom:16px;">
+      <div style="font-size:13px; font-weight:600; margin-bottom:12px; color:#e5e9f0;">Eye Strain Distribution</div>
+      <div style="display:flex; height:12px; border-radius:6px; overflow:hidden; background:#222c40;">
+        <div id="bar-safe" style="width:100%; background:#35c98a; transition:width 0.4s;"></div>
+        <div id="bar-mod" style="width:0%; background:#e8a33d; transition:width 0.4s;"></div>
+        <div id="bar-crit" style="width:0%; background:#ef5d6f; transition:width 0.4s;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:#97a1b2; margin-top:8px;">
+        <span style="color:#35c98a;">● Safe: <span id="pct-safe">100</span>%</span>
+        <span style="color:#e8a33d;">● Moderate: <span id="pct-mod">0</span>%</span>
+        <span style="color:#ef5d6f;">● Critical: <span id="pct-crit">0</span>%</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Web UI Configuration Panel Modal ═══════════════ -->
+<div id="settings-modal" style="display:none; position:fixed; inset:0; z-index:9000; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" style="max-width:560px; width:100%; background:#111622; border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:24px; color:#e5e9f0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:20px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <svg class="ic ic-lg" style="color:var(--accent);"><use href="#i-bell"/></svg>
+        <div>
+          <h2 style="font-size:20px; font-weight:600; margin:0;">User Configuration Settings</h2>
+          <div style="font-size:12px; color:#97a1b2;">Dynamically Adjust Intervention Thresholds</div>
+        </div>
+      </div>
+      <button id="set-close" style="background:transparent; color:#97a1b2; border:none; font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    
+    <form id="cfg-form">
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-size:12px; color:#97a1b2; margin-bottom:6px;">Sensitivity Mode</label>
+        <select id="cfg-sensitivity" style="width:100%; background:#1a2233; color:#fff; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-size:13px;">
+          <option value="Normal">Normal (Standard 20-20-20 Rules)</option>
+          <option value="Sensitive">Sensitive (Early Warning Alerts)</option>
+          <option value="Strict">Strict (High Protection for Dry-Eye)</option>
+        </select>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+        <div>
+          <label style="display:block; font-size:12px; color:#97a1b2; margin-bottom:6px;">Cooldown Timer (Seconds)</label>
+          <input type="number" id="cfg-cooldown" value="50" min="20" max="180" style="width:100%; background:#1a2233; color:#fff; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block; font-size:12px; color:#97a1b2; margin-bottom:6px;">Min Distance Alert (cm)</label>
+          <input type="number" id="cfg-min-dist" value="20" min="10" max="40" style="width:100%; background:#1a2233; color:#fff; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-size:13px;">
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:20px;">
+        <div>
+          <label style="display:block; font-size:12px; color:#97a1b2; margin-bottom:6px;">Min Blink Rate (BPM)</label>
+          <input type="number" id="cfg-min-bpm" value="8" min="4" max="15" style="width:100%; background:#1a2233; color:#fff; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block; font-size:12px; color:#97a1b2; margin-bottom:6px;">Sound Alerts</label>
+          <select id="cfg-sound" style="width:100%; background:#1a2233; color:#fff; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-size:13px;">
+            <option value="1">Enabled (Audio Beeps)</option>
+            <option value="0">Disabled (Silent Screen Dim)</option>
+          </select>
+        </div>
+      </div>
+
+      <button type="submit" style="width:100%; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:12px; font-size:14px; font-weight:600; cursor:pointer;">Save Configuration Settings</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════ Soft 20-20-20 Visual Rest Reminder Modal ═══════════════ -->
+<div id="modal-202020" style="display:none; position:fixed; inset:0; z-index:9500; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" style="max-width:480px; width:100%; background:#131926; border:1px solid rgba(53,201,138,0.3); border-radius:12px; padding:24px; color:#e5e9f0; text-align:center;">
+    <div style="width:54px; height:54px; border-radius:50%; background:rgba(53,201,138,0.15); display:inline-flex; align-items:center; justify-content:center; color:#35c98a; margin-bottom:12px;">
+      <svg class="ic ic-lg" style="width:28px; height:28px;"><use href="#i-eye"/></svg>
+    </div>
+    <h3 style="font-size:20px; font-weight:600; margin:0 0 6px 0; color:#e5e9f0;">20-20-20 Visual Break Time</h3>
+    <p style="font-size:13px; color:#97a1b2; margin:0 0 18px 0;">Look at something <strong>20 feet (6 meters) away</strong> for <strong>20 seconds</strong> to relax your focal muscles.</p>
+    
+    <div style="font-size:36px; font-weight:700; font-family:'JetBrains Mono'; color:#35c98a; margin-bottom:20px;" id="m20-timer">20</div>
+
+    <div style="display:flex; gap:12px; justify-content:center;">
+      <button id="btn-202020-comply" style="background:#35c98a; color:#0c1d14; border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer;">I Looked Away (Complied)</button>
+      <button id="btn-202020-skip" style="background:#1e2638; color:#97a1b2; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px 16px; font-size:13px; font-weight:500; cursor:pointer;">Skip</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/dashboard.js?v=5"></script>
 </body>
 </html>

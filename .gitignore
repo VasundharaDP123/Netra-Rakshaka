@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+firmware/.pio/
+data/*.db
+data/wifi_cache.json
+.vscode/
+.idea/

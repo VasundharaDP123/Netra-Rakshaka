@@ -1,3 +1,4 @@
+import os
 import random
 import time
 import threading
@@ -16,6 +17,8 @@ class Simulator:
         self.degrade_step = 0
         self.start_time = time.time()
         self.continuous_screen_time_min = 0
+        self.total_blinks = 0
+        self.last_blink_time = time.time()
 
         # Real hardware states
         self.use_hardware = False
@@ -33,6 +36,18 @@ class Simulator:
 
     def _hardware_loop(self):
         while True:
+            # Skip USB polling if Wi-Fi telemetry is active
+            cache_file = os.path.join("data", "wifi_cache.json")
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r") as f:
+                        cache_data = json.load(f)
+                    if time.time() - cache_data.get("_received_at", 0) < 15.0:
+                        time.sleep(2)
+                        continue
+                except Exception:
+                    pass
+
             # Check if we need to establish a connection
             has_port = False
             with self.lock:
@@ -52,14 +67,11 @@ class Simulator:
                 
                 if target_port:
                     try:
-                        print(f"\n[HARDWARE] Found potential device. Connecting to {target_port}...")
                         ser = serial.Serial(target_port, 115200, timeout=1.5)
                         with self.lock:
                             self.serial_port = ser
                             self.use_hardware = True
-                        print(f"[HARDWARE] Connected successfully on {target_port}!")
-                    except Exception as e:
-                        print(f"[HARDWARE] Connection failed on {target_port}: {e}")
+                    except Exception:
                         with self.lock:
                             self.use_hardware = False
                         time.sleep(5)
@@ -82,45 +94,66 @@ class Simulator:
                             parsed_data = json.loads(json_str)
                             with self.lock:
                                 self.latest_hardware_data = parsed_data
+                                self.last_hardware_time = time.time()
                                 self.use_hardware = True
-                except Exception as e:
-                    print(f"[HARDWARE] Serial communication error: {e}")
-                    with self.lock:
-                        self.use_hardware = False
-                        if self.serial_port:
-                            try:
-                                self.serial_port.close()
-                            except:
-                                pass
-                            self.serial_port = None
-                    time.sleep(2)
-            time.sleep(0.1)
+                except Exception:
+                    pass
+            time.sleep(0.05)
 
     def set_mode(self, mode):
         self.mode = mode
         self.degrade_step = 0
         if mode == "Normal":
-            self.start_time = time.time() # Reset continuous time for demo purposes
+            self.start_time = time.time()
+
+    # A sensor that is not responding sends 0, which is a plausible-looking reading
+    # and poisons both the dashboard and the classifier. Where the firmware reports
+    # a sensor offline, substitute the simulated value for that field only - the
+    # working sensors keep their real readings.
+    HEALTH_FLAGS = {
+        "tof_ok":  ["screen_distance_cm"],
+        "bmp_ok":  ["eye_temp_celsius", "room_temp_celsius"],
+        "bh_ok":   ["ambient_lux"],
+        "mpu_ok":  ["head_tilt_degrees"],
+    }
+
+    def _patch_offline_fields(self, data, fallback):
+        substituted = []
+        for flag, fields in self.HEALTH_FLAGS.items():
+            if flag in data and not data[flag]:
+                for f in fields:
+                    if f in fallback:
+                        data[f] = fallback[f]
+                        substituted.append(f)
+        data["simulated_fields"] = substituted
+        return data
 
     def get_data(self):
-        # 1. Try to fetch real hardware readings first
+        # 1. Always prefer real hardware telemetry if received within last 15 seconds
         with self.lock:
-            if self.use_hardware and self.latest_hardware_data:
+            if hasattr(self, 'last_hardware_time') and (time.time() - self.last_hardware_time < 15.0) and self.latest_hardware_data:
                 data = self.latest_hardware_data.copy()
                 self.continuous_screen_time_min = int((time.time() - self.start_time) / 60)
                 data["continuous_screen_time_min"] = self.continuous_screen_time_min
+                # Fill in only the fields whose sensor is offline.
+                if any(f in data for f in self.HEALTH_FLAGS):
+                    data = self._patch_offline_fields(data, self._simulated_values())
                 return data
 
-        # 2. Fall back to simulation model if hardware is not connected
+        # 2. Fall back to the simulation model if hardware is not connected
+        return self._simulated_values()
+
+    def _simulated_values(self):
         # Base values
         data = {
-            "blink_rate": 16,
+            "blink_rate": 0,
             "blink_duration_ms": 200,
-            "eye_temp_celsius": 35.0,
+            "eye_temp_celsius": 25.0,
             "screen_distance_cm": 45,
-            "ambient_lux": 300,
+            "ambient_lux": 150,
             "room_humidity_pct": 50,
             "head_tilt_degrees": 5,
+            "room_temp_celsius": 25.0,
         }
 
         # Calculate continuous time
@@ -132,15 +165,12 @@ class Simulator:
             
         elif self.mode == "Degrading":
             self.degrade_step += 1
-            # Slowly drop blink rate and distance, increase temp and tilt
-            data["blink_rate"] = max(4, 16 - (self.degrade_step // 2))
             data["screen_distance_cm"] = max(15, 45 - self.degrade_step)
             data["eye_temp_celsius"] = max(33.0, 35.0 - (self.degrade_step * 0.1))
             data["head_tilt_degrees"] = min(40, 5 + self.degrade_step)
             data["blink_duration_ms"] = min(800, 200 + (self.degrade_step * 10))
             
         elif self.mode == "Critical":
-            data["blink_rate"] = 4
             data["blink_duration_ms"] = 700
             data["eye_temp_celsius"] = 33.5
             data["screen_distance_cm"] = 15
@@ -149,18 +179,8 @@ class Simulator:
             data["head_tilt_degrees"] = 40
             data["continuous_screen_time_min"] = 50
 
-        # Inject Noise
-        data["blink_rate"] += random.randint(-1, 1)
-        data["blink_duration_ms"] += random.randint(-20, 20)
-        data["eye_temp_celsius"] += round(random.uniform(-0.2, 0.2), 1)
-        data["screen_distance_cm"] += random.randint(-2, 2)
-        data["ambient_lux"] += random.randint(-10, 10)
-        data["room_humidity_pct"] += random.randint(-1, 1)
-        data["head_tilt_degrees"] += random.randint(-2, 2)
-        
         # Clamp bounds
-        data["blink_rate"] = max(0, data["blink_rate"])
-        data["screen_distance_cm"] = max(5, data["screen_distance_cm"])
+        data["screen_distance_cm"] = max(0, data["screen_distance_cm"])
 
         return data
 

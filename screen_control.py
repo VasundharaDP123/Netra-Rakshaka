@@ -10,6 +10,13 @@ sio = socketio.Client()
 critical_count = 0
 trigger_dim = False
 last_dim_time = 0
+agent_start_time = time.time()
+
+# A single Critical packet must not dim the screen. The simulated head tilt sweeps
+# to 35 degrees every 4 seconds, which the classifier reads as Critical - so a
+# one-shot trigger fires within seconds of startup, every time.
+CRITICAL_STREAK_REQUIRED = 15  # ~3s of sustained Critical at 5 packets/sec
+STARTUP_GRACE_SEC = 60         # no breaks while the sensors are still settling
 
 def set_brightness(level):
     try:
@@ -65,7 +72,11 @@ def show_overlay():
             count_label.config(text=str(count))
             root.after(1000, countdown, count - 1)
         else:
-            root.destroy()
+            try:
+                root.quit()
+                root.destroy()
+            except Exception:
+                pass
 
     countdown(20)
     root.mainloop()
@@ -73,14 +84,19 @@ def show_overlay():
 @sio.on('sensor_update')
 def on_sensor_update(data):
     global critical_count, trigger_dim, last_dim_time
-    
+
+    # Don't interrupt during startup, while the blink baseline is still settling
+    # and blink_rate is legitimately 0.
+    if time.time() - agent_start_time < STARTUP_GRACE_SEC:
+        return
+
     # 50 second cooldown after a break so you don't get trapped in a loop!
     if time.time() - last_dim_time < 50:
         return
-        
+
     if data['strain_level'] == 'Critical':
         critical_count += 1
-        if critical_count >= 3:
+        if critical_count >= CRITICAL_STREAK_REQUIRED:
             trigger_dim = True
             critical_count = 0
     else:
@@ -99,6 +115,17 @@ def main_loop():
             with open("data/breaks_log.txt", "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Enforced 20-second break\n")
             
+            # Record break in SQLite DB via Flask API
+            try:
+                import urllib.request
+                import json
+                req = urllib.request.Request("http://127.0.0.1:5000/api/log_break", 
+                                             data=json.dumps({"reason": "Critical Eye Strain", "duration": 20}).encode('utf-8'),
+                                             headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=2)
+            except Exception:
+                pass
+            
             # Set cooldown timestamp and reset trigger BEFORE showing the overlay
             # This blocks the background thread from accumulating critical packets during the break
             last_dim_time = time.time()
@@ -114,14 +141,20 @@ def main_loop():
         time.sleep(0.1)
 
 if __name__ == '__main__':
-    print("Starting Screen Control Intervention Script...")
+    print("=========================================================")
+    print("  Netra Rakshaka Screen Control Intervention Agent Ready ")
+    print("=========================================================")
     
-    print("DEBUG: Attempting Socket.IO connection to http://127.0.0.1:5000...")
-    try:
-        sio.connect('http://127.0.0.1:5000')
-        print("DEBUG: Socket.IO Connected successfully!")
-        
-        # Run the tkinter loop in the main thread to prevent thread crashes
-        main_loop()
-    except Exception as e:
-        print(f"Error during connection/execution: {e}")
+    connected = False
+    while not connected:
+        try:
+            print("DEBUG: Attempting Socket.IO connection to http://127.0.0.1:5000...")
+            sio.connect('http://127.0.0.1:5000')
+            print("\n✅ Connected successfully to Netra-Rakshaka Server!")
+            print("👁️ Monitoring eye strain... Mandatory 20s breaks will trigger on Critical strain.\n")
+            connected = True
+        except Exception:
+            print("⏳ Server (app.py) not active on port 5000 yet. Retrying in 3 seconds...")
+            time.sleep(3)
+            
+    main_loop()
