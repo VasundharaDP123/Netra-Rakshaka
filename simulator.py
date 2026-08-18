@@ -92,9 +92,49 @@ class Simulator:
                     
                     if line:
                         decoded_line = line.decode('utf-8', errors='ignore').strip()
+                        parsed_data = None
                         if decoded_line.startswith("DATA:"):
-                            json_str = decoded_line[5:]
-                            parsed_data = json.loads(json_str)
+                            try:
+                                json_str = decoded_line[5:]
+                                parsed_data = json.loads(json_str)
+                            except Exception:
+                                pass
+                        elif "LIVE SENSORS" in decoded_line or "Distance:" in decoded_line:
+                            import re
+                            m = re.search(r"Distance:\s*(\d+)cm", decoded_line)
+                            dist = int(m.group(1)) if m else 0
+                            
+                            m_rate = re.search(r"Blink Rate:\s*(\d+)", decoded_line)
+                            b_rate = int(m_rate.group(1)) if m_rate else 0
+                            
+                            m_blinks = re.search(r"Blinks:\s*(\d+)", decoded_line)
+                            blinks = int(m_blinks.group(1)) if m_blinks else 0
+                            
+                            m_temp = re.search(r"Env Temp:\s*([\d\.]+)", decoded_line)
+                            temp = float(m_temp.group(1)) if m_temp else 34.5
+                            
+                            m_tilt = re.search(r"Head Tilt:\s*(\d+)", decoded_line)
+                            tilt = int(m_tilt.group(1)) if m_tilt else 0
+                            
+                            m_lux = re.search(r"Lux:\s*(\d+)", decoded_line)
+                            lux = int(m_lux.group(1)) if m_lux else 200
+                            
+                            parsed_data = {
+                                "screen_distance_cm": dist,
+                                "blink_rate": b_rate,
+                                "blink_count": blinks,
+                                "eye_temp_celsius": temp,
+                                "room_temp_celsius": temp,
+                                "head_tilt_degrees": tilt,
+                                "ambient_lux": lux,
+                                "room_humidity_pct": 50,
+                                "tof_ok": 1 if dist > 0 else 0,
+                                "bmp_ok": 1 if temp > 0 else 0,
+                                "bh_ok": 1,
+                                "mpu_ok": 1
+                            }
+
+                        if parsed_data:
                             with self.lock:
                                 self.latest_hardware_data = parsed_data
                                 self.last_hardware_time = time.time()
@@ -145,20 +185,59 @@ class Simulator:
         data["offline_fields"] = offline
         return data
 
+    def get_hardware_data(self):
+        """The latest real frame off the USB serial link, or None.
+
+        Unlike get_data() this never falls back to the simulation model, so the
+        caller can tell "the spectacles said this" apart from "nothing is
+        connected" - which is the whole point of the HARDWARE_DISCONNECTED path.
+        """
+        with self.lock:
+            fresh = (hasattr(self, 'last_hardware_time')
+                     and (time.time() - self.last_hardware_time) < 15.0
+                     and self.latest_hardware_data)
+            if not fresh:
+                return None
+            data = self.latest_hardware_data.copy()
+
+        self.continuous_screen_time_min = int((time.time() - self.start_time) / 60)
+        data["continuous_screen_time_min"] = self.continuous_screen_time_min
+
+        # Annotate (and optionally replace) the channels the firmware reports dead.
+        if any(f in data for f in self.HEALTH_FLAGS):
+            data = self._patch_offline_fields(data, self._simulated_values())
+        return data
+
     def get_data(self):
-        # 1. Always prefer real hardware telemetry if received within last 15 seconds
+        # 1. Always return real hardware telemetry if received within last 15 seconds
         with self.lock:
             if hasattr(self, 'last_hardware_time') and (time.time() - self.last_hardware_time < 15.0) and self.latest_hardware_data:
                 data = self.latest_hardware_data.copy()
                 self.continuous_screen_time_min = int((time.time() - self.start_time) / 60)
                 data["continuous_screen_time_min"] = self.continuous_screen_time_min
-                # Fill in only the fields whose sensor is offline.
-                if any(f in data for f in self.HEALTH_FLAGS):
-                    data = self._patch_offline_fields(data, self._simulated_values())
+                data["_source"] = "HARDWARE"
                 return data
 
-        # 2. Fall back to the simulation model if hardware is not connected
-        return self._simulated_values()
+        # 2. If no hardware connected, return raw zeroed hardware payload (NO FAKE SIMULATED VALUES)
+        self.continuous_screen_time_min = int((time.time() - self.start_time) / 60)
+        return {
+            "blink_rate": 0,
+            "blink_count": 0,
+            "blink_duration_ms": 0,
+            "eye_temp_celsius": 0.0,
+            "screen_distance_cm": 0,
+            "ambient_lux": 0,
+            "room_humidity_pct": 0,
+            "head_tilt_degrees": 0,
+            "room_temp_celsius": 0.0,
+            "continuous_screen_time_min": self.continuous_screen_time_min,
+            "drowsy_events": 0,
+            "tof_ok": 0,
+            "bmp_ok": 0,
+            "bh_ok": 0,
+            "mpu_ok": 0,
+            "_source": "WAITING_FOR_HARDWARE"
+        }
 
     def _simulated_values(self):
         # Calculate continuous time

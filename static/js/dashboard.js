@@ -307,7 +307,8 @@ const STALE_LIMIT = 5;
 
 const SOURCE_LABEL = {
   WIFI: 'Wi-Fi telemetry', SERIAL: 'USB serial telemetry',
-  SIMULATOR: 'Backend simulator', FALLBACK: 'Local simulation'
+  SIMULATOR: 'Backend simulator', FALLBACK: 'Local simulation',
+  HARDWARE_DISCONNECTED: 'Spectacles disconnected'
 };
 
 /* Notes shown beside the score, per classified level. */

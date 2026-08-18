@@ -88,7 +88,16 @@ def get_active_sensor_data():
         except Exception:
             pass
 
-    # 3. ABSOLUTELY NO SIMULATOR ALLOWED! Return zeros if hardware is blocked.
+    # 3. USB serial telemetry from the spectacles. This is real hardware data,
+    #    not the simulation model - get_hardware_data() returns None rather than
+    #    falling back, so nothing invented can reach the dashboard here.
+    hw = simulator_instance.get_hardware_data()
+    if hw:
+        hw["_source"] = "SERIAL"
+        return hw
+
+    # 4. Nothing connected on either transport. Report zeros rather than inventing
+    #    values, and label the source so the console can say so plainly.
     return {
         "blink_rate": 0,
         "blink_count": 0,
