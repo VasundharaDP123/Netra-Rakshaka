@@ -3,6 +3,44 @@
 #include <VL53L0X.h>
 #include <Adafruit_BMP280.h>
 #include <BH1750.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Wi-Fi credentials live in secrets.h, which is gitignored so they are never
+//  committed. Copy firmware/src/secrets.example.h to firmware/src/secrets.h and
+//  fill in your network and the LAN IP of the PC running app.py.
+//
+//  Without that file the placeholders below are used, so the project still
+//  builds on a fresh clone - it simply will not associate until you add it.
+// ═══════════════════════════════════════════════════════════════════════════
+#define ENABLE_WIFI       1                 // 0 = USB serial only
+
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
+
+#ifndef WIFI_SSID
+  #define WIFI_SSID       "YOUR_WIFI_NAME"
+#endif
+#ifndef WIFI_PASS
+  #define WIFI_PASS       "YOUR_WIFI_PASSWORD"
+#endif
+#ifndef SERVER_HOST
+  #define SERVER_HOST     "192.168.1.50"    // PC running app.py
+#endif
+#ifndef SERVER_PORT
+  #define SERVER_PORT     5000
+#endif
+
+// How often to POST. The telemetry frame itself is built every TELEMETRY_MS
+// (200 ms), but an HTTP POST blocks the loop while it completes, and the IR
+// sampler must not miss its 4 ms cadence or short blinks slip through. 500 ms is
+// a deliberate compromise: the server holds each frame for 30 s and re-broadcasts
+// to the dashboard at 5 Hz regardless, so nothing downstream looks any slower.
+#define WIFI_POST_MS      500
+#define WIFI_HTTP_TIMEOUT 400               // ms; never stall the sensor loop
+#define WIFI_RETRY_MS     5000              // reconnect attempt interval
 
 #define I2C_SDA_DEFAULT 8
 #define I2C_SCL_DEFAULT 9
@@ -569,6 +607,85 @@ bool autoDetectI2CPins() {
   return false;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  Wi-Fi telemetry
+//
+//  Serial output is never disabled by any of this: the USB path keeps working
+//  whether or not Wi-Fi associates, so a failed connection degrades to a cable
+//  rather than to nothing.
+// ═══════════════════════════════════════════════════════════════════════════
+#if ENABLE_WIFI
+String serverUrl;
+unsigned long lastPostAttempt = 0, lastWifiRetry = 0, lastPostError = 0;
+unsigned long postOk = 0, postFail = 0;
+
+void wifiBegin() {
+  serverUrl = String("http://") + SERVER_HOST + ":" + String(SERVER_PORT) + "/sensor_data";
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);            // modem sleep adds hundreds of ms of latency
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  Serial.print("WiFi: connecting to \"" WIFI_SSID "\"");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 12000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi: connected. Spectacles IP ");
+    Serial.print(WiFi.localIP());
+    Serial.print("  RSSI "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
+    Serial.print("WiFi: posting telemetry to "); Serial.println(serverUrl);
+  } else {
+    Serial.println("WiFi: NOT connected. Check SSID/password and that the network"
+                   " is 2.4 GHz. Telemetry continues over USB serial.");
+    Serial.println("      Retrying in the background every 5 s.");
+  }
+}
+
+// Non-blocking association retry: never sits in a loop waiting for the router.
+void wifiEnsureConnected(unsigned long now) {
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (now - lastWifiRetry < WIFI_RETRY_MS) return;
+  lastWifiRetry = now;
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
+void wifiPost(unsigned long now, const String& payload) {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (now - lastPostAttempt < WIFI_POST_MS) return;
+  lastPostAttempt = now;
+
+  HTTPClient http;
+  http.setReuse(true);                       // keep the socket, skip the handshake
+  http.setConnectTimeout(WIFI_HTTP_TIMEOUT);
+  http.setTimeout(WIFI_HTTP_TIMEOUT);
+  http.begin(serverUrl);
+  http.addHeader("Content-Type", "application/json");
+
+  int code = http.POST(payload);
+  http.end();
+
+  if (code == 200) {
+    postOk++;
+  } else {
+    postFail++;
+    // Rate-limited so a downed server cannot flood the serial console.
+    if (now - lastPostError > 5000) {
+      lastPostError = now;
+      Serial.print("WiFi: POST failed (");
+      Serial.print(code);                    // negative = client-side error
+      Serial.print(") to "); Serial.print(serverUrl);
+      Serial.println("  - is app.py running, and does the firewall allow port 5000?");
+    }
+  }
+}
+#endif  // ENABLE_WIFI
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -618,7 +735,13 @@ void setup() {
 
   sessionStartTime = millis();
 
-  Serial.println("Netra Rakshaka USB Hardware Firmware Ready!");
+#if ENABLE_WIFI
+  wifiBegin();
+#else
+  Serial.println("WiFi: disabled at compile time (ENABLE_WIFI 0) - USB serial only.");
+#endif
+
+  Serial.println("Netra Rakshaka Hardware Firmware Ready!");
   Serial.print("ToF: "); Serial.print(tofOK);
   Serial.print(" BMP280: "); Serial.print(bmpOK);
   Serial.print(" BH1750: "); Serial.print(bhOK);
@@ -700,6 +823,10 @@ void loop() {
     jsonPayload += "\"i2c\":\"" + i2cPresent + "\",";
     jsonPayload += "\"sda\":" + String(sdaLevel) + ",";
     jsonPayload += "\"scl\":" + String(sclLevel);
+#if ENABLE_WIFI
+    jsonPayload += ",\"wifi_rssi\":" +
+                   String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+#endif
 #if IR_DEBUG
     jsonPayload += ",\"ir_raw\":" + String(lastIrRaw);
     jsonPayload += ",\"ir_baseline\":" + String((int)irRef);
@@ -708,7 +835,27 @@ void loop() {
 #endif
     jsonPayload += "}";
 
+    // USB serial always goes out first, so a slow or failing POST can never cost
+    // you the cable path.
     Serial.print("DATA:");
     Serial.println(jsonPayload);
+
+#if ENABLE_WIFI
+    wifiEnsureConnected(now);
+    wifiPost(now, jsonPayload);
+
+    // Heartbeat: proves the link is alive without printing on every frame.
+    static unsigned long lastWifiStat = 0;
+    if (now - lastWifiStat >= 30000) {
+      lastWifiStat = now;
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("WiFi: "); Serial.print(postOk); Serial.print(" posts OK, ");
+        Serial.print(postFail); Serial.print(" failed, RSSI ");
+        Serial.print(WiFi.RSSI()); Serial.println(" dBm");
+      } else {
+        Serial.println("WiFi: still disconnected - retrying. USB serial unaffected.");
+      }
+    }
+#endif
   }
 }

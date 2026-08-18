@@ -402,14 +402,72 @@ table.data .trend { font-family: var(--mono); font-size: 11px; color: var(--mute
 }
 .pagefoot .deva { font-family: var(--deva); }
 
-/* ── Break modal ─────────────────────────────────────────────────────── */
+/* ── Enforced break: a full-screen takeover ──────────────────────────────
+   An enforced break has to actually interrupt. It sits above every floating
+   element on the page - the corner strain dot (999999), the toast stack
+   (99999) and the analytics page (9999999) - so nothing can render on top of
+   it while a break is running.
+   ───────────────────────────────────────────────────────────────────────── */
 #overlay {
-  display: none; position: fixed; inset: 0; z-index: 9999;
-  background: rgba(6, 8, 12, 0.86);
-  backdrop-filter: blur(6px);
-  align-items: center; justify-content: center; padding: 24px;
+  display: none; position: fixed; inset: 0; z-index: 2147483000;
+  width: 100vw; height: 100vh;
+  background: #04060b;               /* fully opaque: nothing bleeds through */
+  align-items: stretch; justify-content: stretch; padding: 0;
+  overscroll-behavior: contain;
+  cursor: none;
 }
 #overlay.show { display: flex; }
+
+/* Blackout: nothing of the dashboard shows through, and the countdown is the
+   only thing on screen. Combined with the Fullscreen API in dashboard.js this
+   also covers the browser chrome and the OS taskbar. */
+#overlay .modal {
+  width: 100vw; max-width: none; height: 100vh;
+  border: 0; border-radius: 0; box-shadow: none;
+  background: transparent;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: none;                      /* nothing to click - rest your eyes */
+}
+
+/* Everything except the countdown is hidden during the break. */
+#overlay .modal-head,
+#overlay .modal-steps,
+#overlay .modal-foot,
+#overlay .modal-copy { display: none; }
+
+#overlay .modal-body {
+  flex: 1 1 auto; width: 100%;
+  flex-direction: column; justify-content: center; align-items: center;
+  gap: 4vh; padding: 0; text-align: center;
+}
+
+/* The ring scales with the viewport so it dominates any screen size. */
+#overlay .ov-ring { width: min(52vh, 52vw); height: min(52vh, 52vw); flex-shrink: 0; }
+#overlay .ov-ring svg { width: 100%; height: 100%; }
+#overlay .ov-track { stroke: rgba(255, 255, 255, 0.07); stroke-width: 3.5; }
+#overlay .ov-prog  { stroke-width: 3.5; }
+#overlay .ov-count {
+  font-size: min(22vh, 22vw); font-weight: 600; letter-spacing: -0.04em;
+  color: #f4f6fa;
+}
+
+/* One quiet line of instruction under the timer. */
+.ov-hint {
+  font-size: min(2.4vh, 18px); letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(230, 236, 245, 0.45);
+}
+
+/* Shown only if the browser refuses the automatic fullscreen request, which it
+   does unless the page has recent user activation. One click satisfies it. */
+#ov-fs-btn {
+  position: fixed; bottom: 5vh; left: 50%; transform: translateX(-50%);
+  padding: 12px 22px; border-radius: 999px; cursor: pointer;
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  color: #fff; background: rgba(239, 93, 111, 0.18);
+  border: 1px solid rgba(239, 93, 111, 0.5);
+}
+#ov-fs-btn:hover { background: rgba(239, 93, 111, 0.3); }
 
 .modal {
   width: 100%; max-width: 520px;

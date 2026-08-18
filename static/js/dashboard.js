@@ -544,7 +544,8 @@ function render() {
   /* status bar */
   $('status-icon').firstElementChild.setAttribute('href', st.icon);
   $('status-title').textContent = st.title;
-  $('status-desc').textContent = st.desc;
+  // Name the cause in the banner too, so it survives dismissing the toast.
+  $('status-desc').textContent = f.level === 'Safe' ? st.desc : causeSummary(f);
   $('meta-score').textContent = f.score;
   const samples = f.live ? packetCount : sampleCount;
   $('meta-samples').textContent = samples.toLocaleString();
@@ -641,17 +642,20 @@ function render() {
   /* event log: state transitions + threshold entries and exits */
   if (lastLevel !== f.level) {
     if (lastLevel !== null) {
-      logEvent(st.sev, `Strain state → ${st.badge}`, `index ${f.score}/100 · ${lastLevel} → ${f.level}`);
-      if (f.level === 'Critical') {
-        showDashboardNotification("🚨 CRITICAL EYE STRAIN DETECTED", `Ocular strain score ${f.score}/100! Blink rate or viewing distance critically degraded. Recovery break required.`, "crit");
-      } else if (f.level === 'Moderate') {
-        showDashboardNotification("⚠️ Moderate Eye Strain Warning", `Ocular strain score ${f.score}/100. Early fatigue detected — rest recommended.`, "warn");
-      }
+      const why = f.level === 'Safe' ? 'all channels back inside their bands' : causeSummary(f);
+      logEvent(st.sev, `Strain state → ${st.badge}`, `index ${f.score}/100 · ${why}`);
+      if (f.level !== 'Safe') notifyStrain(f, f.level);
     } else {
       logEvent('info', 'Monitoring started', 'classifier online · 5 Hz sampling');
     }
     lastLevel = f.level;
+  } else if (f.level !== 'Safe') {
+    // Still in strain: re-alert only when the dominant cause has actually changed
+    // (guarded inside notifyStrain), so a persistent state does not nag.
+    notifyStrain(f, f.level);
   }
+  if (f.level === 'Safe') lastNotifiedCause = null;   // next episode always alerts
+
   evaluateBreaches(f);
   checkDeepWorkAutoSuggest(f);
   tick202020(f);
@@ -701,6 +705,34 @@ function updateHealth(f) {
 /* ══════════════════════════════════════════════════════════════════════════
    Enforced break modal — the "intrusive" intervention Deep Work silences
    ══════════════════════════════════════════════════════════════════════════ */
+/* Real fullscreen is the only way a web page can cover the browser chrome and
+   the OS taskbar. Browsers grant it only with recent user activation, so the
+   automatic request can be refused - in that case a single button click, which
+   counts as activation, completes the blackout. */
+function enterBreakFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (!req || document.fullscreenElement) return Promise.resolve();
+  return req.call(el, { navigationUI: 'hide' });
+}
+
+function exitBreakFullscreen() {
+  if (!document.fullscreenElement) return;
+  (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
+}
+
+function showFullscreenFallback() {
+  if ($('ov-fs-btn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'ov-fs-btn';
+  btn.textContent = 'Tap to black out the screen';
+  btn.addEventListener('click', () => {
+    enterBreakFullscreen().catch(() => {});
+    btn.remove();
+  });
+  $('overlay').appendChild(btn);
+}
+
 function startIntervention() {
   if (breakActive) return;
 
@@ -731,6 +763,7 @@ function startIntervention() {
   const overlay = $('overlay'), numEl = $('ov-num'), prog = $('ov-prog');
   const TOTAL = 282;
   overlay.classList.add('show');
+  enterBreakFullscreen().catch(showFullscreenFallback);
 
   let t = 20;
   numEl.textContent = t;
@@ -746,6 +779,9 @@ function startIntervention() {
     if (t <= 0) {
       clearInterval(iv);
       overlay.classList.remove('show');
+      const fsBtn = $('ov-fs-btn');
+      if (fsBtn) fsBtn.remove();
+      exitBreakFullscreen();
       breakActive = false;
       logEvent('ok', 'Break completed', 'brightness restored · 50 s enforcement cooldown');
     }
@@ -1353,6 +1389,95 @@ function showDashboardNotification(title, message, type = 'crit', actions = []) 
     toast.style.transform = 'translateX(40px)';
     setTimeout(() => toast.remove(), 300);
   }, actions.length ? 14000 : 6000);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Strain diagnosis — why the state changed, and what to do about it
+
+   "Eye strain detected" is useless on its own: the wearer cannot act on it.
+   Every alert names the channel that actually moved, quotes its reading against
+   the reference band, and gives one short correction.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CAUSE_INFO = {
+  blink: {
+    label: 'Blink rate collapsed',
+    detail: (f) => `${f.blink} bpm · healthy 15–20`,
+    fix: 'Blink fully 10 times, then look away'
+  },
+  dist: {
+    label: 'Screen too close',
+    detail: (f) => `${f.dist} cm · keep beyond 30 cm`,
+    fix: 'Push back to about arm’s length'
+  },
+  posture: {
+    label: 'Neck flexed forward',
+    detail: (f) => `${f.tilt}° · upright is under 20°`,
+    fix: 'Raise the screen to eye level'
+  },
+  light: {
+    label: (f) => (f.lux > 600 ? 'Glare from bright surroundings' : 'Lighting too dim'),
+    detail: (f) => `${f.lux} lx · comfort band 150–600`,
+    fix: (f) => (f.lux > 600 ? 'Lower screen brightness or close the blind'
+                             : 'Add a soft desk lamp behind the screen')
+  },
+  dryness: {
+    label: 'Tear film drying out',
+    detail: (f) => `blink ${f.bd} ms · air ${f.hum}% RH`,
+    fix: 'Rest 20 s and rehydrate — slow, complete blinks'
+  }
+};
+
+const resolve = (v, f) => (typeof v === 'function' ? v(f) : v);
+
+/* Ranks the contributing channels by the same weighting the Risk Contribution
+   panel shows, and keeps the two that actually matter. */
+function diagnose(f) {
+  const fs = factorScores(f);
+  return Object.entries(fs)
+    .filter(([, score]) => score >= 40)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([key, score]) => ({
+      key,
+      score: Math.round(score),
+      label: resolve(CAUSE_INFO[key].label, f),
+      detail: resolve(CAUSE_INFO[key].detail, f),
+      fix: resolve(CAUSE_INFO[key].fix, f)
+    }));
+}
+
+/* One-line summary for the status bar and the event log. */
+function causeSummary(f) {
+  const causes = diagnose(f);
+  if (!causes.length) return 'sustained screen exposure without a rest';
+  return causes.map(c => `${c.label.toLowerCase()} (${c.detail})`).join(' · ');
+}
+
+let lastNotifiedCause = null, lastStrainNotifyAt = 0;
+const STRAIN_RENOTIFY_MS = 60000;   // a changed cause may re-alert, but not sooner
+
+function notifyStrain(f, level) {
+  const causes = diagnose(f);
+  const primary = causes.length ? causes[0].key : 'none';
+
+  // Deep Work silences routine fatigue warnings; Critical always breaks through.
+  if (deepWorkActive && level !== 'Critical') return;
+
+  const now = Date.now();
+  if (primary === lastNotifiedCause && now - lastStrainNotifyAt < STRAIN_RENOTIFY_MS) return;
+  lastNotifiedCause = primary;
+  lastStrainNotifyAt = now;
+
+  const body = causes.length
+    ? causes.map(c => `<b>${c.label}</b> — ${c.detail}<br><span style="opacity:.85">→ ${c.fix}</span>`).join('<br><br>')
+    : 'No single channel is out of band — this is cumulative exposure.<br><span style="opacity:.85">→ Look 20 feet away for 20 seconds</span>';
+
+  showDashboardNotification(
+    level === 'Critical' ? `Critical strain · ${f.score}/100` : `Fatigue building · ${f.score}/100`,
+    body,
+    level === 'Critical' ? 'crit' : 'warn',
+    [{ label: 'Rest 20 s', action: () => trigger202020() }]
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

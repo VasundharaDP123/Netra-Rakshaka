@@ -27,9 +27,11 @@ class Simulator:
         self.hardware_thread = None
         self.lock = threading.Lock()
 
-        # DISABLED to prevent conflict with Wi-Fi receiver
-        # if SERIAL_AVAILABLE:
-        #     self.start_hardware_polling()
+        # USB serial reader. It cannot fight the Wi-Fi receiver: _hardware_loop
+        # skips polling entirely while data/wifi_cache.json holds a frame newer
+        # than 15 seconds, so whichever transport is live wins on its own.
+        if SERIAL_AVAILABLE:
+            self.start_hardware_polling()
 
     def start_hardware_polling(self):
         self.hardware_thread = threading.Thread(target=self._hardware_loop, daemon=True)
@@ -109,8 +111,15 @@ class Simulator:
 
     # A sensor that is not responding sends 0, which is a plausible-looking reading
     # and poisons both the dashboard and the classifier. Where the firmware reports
-    # a sensor offline, substitute the simulated value for that field only - the
-    # working sensors keep their real readings.
+    # a sensor offline, the simulated value for that field can be substituted - the
+    # working sensors keep their real readings either way.
+    #
+    # OFF by default: during hardware bring-up a substituted value is worse than a
+    # missing one, because it hides the fault. With this disabled you see exactly
+    # what the sensor reported (usually 0) and the console marks the channel dead.
+    # Set NR_SUBSTITUTE_OFFLINE=1 to restore substitution once the rig is working.
+    SUBSTITUTE_OFFLINE = os.getenv("NR_SUBSTITUTE_OFFLINE", "0") == "1"
+
     HEALTH_FLAGS = {
         "tof_ok":  ["screen_distance_cm"],
         "bmp_ok":  ["eye_temp_celsius", "room_temp_celsius"],
@@ -120,13 +129,20 @@ class Simulator:
 
     def _patch_offline_fields(self, data, fallback):
         substituted = []
+        offline = []
         for flag, fields in self.HEALTH_FLAGS.items():
             if flag in data and not data[flag]:
                 for f in fields:
-                    if f in fallback:
+                    if f not in fallback:
+                        continue
+                    offline.append(f)
+                    if self.SUBSTITUTE_OFFLINE:
                         data[f] = fallback[f]
                         substituted.append(f)
         data["simulated_fields"] = substituted
+        # Always report which channels the firmware says are dead, whether or not
+        # their values were replaced.
+        data["offline_fields"] = offline
         return data
 
     def get_data(self):

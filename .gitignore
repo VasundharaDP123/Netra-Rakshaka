@@ -8,3 +8,6 @@ data/wifi_cache.json
 
 # Runtime data: regenerated on every run, kept out of the repo
 data/session_log.csv
+
+# Wi-Fi credentials: local only, never committed
+firmware/src/secrets.h
