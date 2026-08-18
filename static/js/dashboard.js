@@ -952,11 +952,10 @@ function updateDeepWorkUI() {
 }
 
 function startDeepWork(durationMin = 25) {
-  // Edge Case 2: Block starting Deep Work if user is currently under Critical Eye Strain
+  // Allow Deep Work Mode activation anytime; log warning if starting under Critical strain
   if (lastLevel === 'Critical' || (livePacket && livePacket.strain_level === 'Critical')) {
-    alert("⛔ Cannot Start Deep Work Mode!\n\nYour eye strain is currently CRITICAL. Please take a 20-second eye rest break before starting a focus session.");
-    logEvent('warn', 'Deep Work Blocked', 'Attempted to start Deep Work while in Critical strain state');
-    return;
+    logEvent('warn', 'Deep Work Started under High Strain', 'Focus mode activated while strain is elevated');
+    showDashboardNotification("⚠️ High Strain Focus Mode", "Deep Work Mode started during high strain. Emergency alerts remain active.", "warn");
   }
 
   deepWorkActive = true;
@@ -1058,6 +1057,14 @@ function completeDeepWork() {
 if ($('btn-dw-start')) $('btn-dw-start').addEventListener('click', () => startDeepWork(25));
 if ($('btn-dw-extend')) $('btn-dw-extend').addEventListener('click', () => extendDeepWork(25));
 if ($('btn-dw-stop')) $('btn-dw-stop').addEventListener('click', () => stopDeepWork(true));
+if ($('nav-item-deepwork')) {
+  $('nav-item-deepwork').addEventListener('click', () => {
+    if (!deepWorkActive) {
+      startDeepWork(25);
+    }
+    if ($('dw-card')) $('dw-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    On-Dashboard Real-Time Notification System
