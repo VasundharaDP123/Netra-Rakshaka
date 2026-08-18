@@ -5,3 +5,6 @@ data/*.db
 data/wifi_cache.json
 .vscode/
 .idea/
+
+# Runtime data: regenerated on every run, kept out of the repo
+data/session_log.csv

@@ -721,6 +721,13 @@ function startIntervention() {
   reset202020Timer('enforced break');    // a stronger alert already rested the eyes
   logEvent('crit', 'Enforced break started', '20 s · display brightness reduced to 20%');
 
+  // Persist it, so Analytics reports breaks across sessions rather than a tally
+  // that resets with the page.
+  fetch('/api/log_break', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'Critical strain', duration: 20 })
+  }).catch(() => {});
+
   const overlay = $('overlay'), numEl = $('ov-num'), prog = $('ov-prog');
   const TOTAL = 282;
   overlay.classList.add('show');
@@ -941,7 +948,7 @@ function renderAnalytics(windowType = 'daily') {
       setText('an-screen-time', hist.activeMin.toFixed(1) + ' min');
       setText('an-avg-bpm', hist.avgBpm.toFixed(1) + ' bpm');
       setText('an-dist-comp', hist.distCompliance.toFixed(1) + '%');
-      setText('an-breaks', breakCount);
+      // break count is left alone here: it comes from break_events via /api/analytics
       paintDistribution(hist.safe, hist.mod, hist.crit);
       setText('an-window-note',
         `${windowType === 'weekly' ? 'last 7 days' : 'last 24 hours'} · ` +
@@ -1406,14 +1413,18 @@ document.addEventListener('keydown', (e) => {
   if ($('settings-modal') && $('settings-modal').style.display !== 'none') closeSettingsModal();
 });
 
-/* The physical Deep Work button on the spectacles: when app.py broadcasts a
-   `deep_work_start` event over Socket.IO, the console picks it up here. */
+/* The physical Deep Work button on the spectacles: app.py broadcasts
+   `deep_work_event` with an action, and the console picks it up here.
+   A session started from this console POSTs /api/deep_work_start, which echoes
+   the same event back — so an already-running session ignores it rather than
+   extending itself in a loop. */
 if (typeof io !== 'undefined') {
   try {
     const evtSocket = io({ transports: ['websocket', 'polling'] });
-    evtSocket.on('deep_work_start', (d) => {
-      const mins = (d && d.duration_min) || 25;
-      logEvent('info', 'Deep Work requested by device', `${mins} min · deep_work_start over Wi-Fi`);
+    evtSocket.on('deep_work_event', (d) => {
+      if (!d || d.action !== 'start' || deepWorkActive) return;
+      const mins = d.duration_min || 25;
+      logEvent('info', 'Deep Work requested by device', `${mins} min · deep_work_event over Wi-Fi`);
       startDeepWork(mins, true);
     });
   } catch (e) { /* standalone */ }

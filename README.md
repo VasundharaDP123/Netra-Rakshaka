@@ -264,7 +264,8 @@ Analytics paints the live session buffer immediately, then widens to the recorde
 
 | Store | Contents |
 |---|---|
-| `data/session_log.csv` | Every classified frame: timestamp, seven features, strain level and score — the training set for `train_classifier.py` |
+| `data/session_log.csv` | Every classified frame: timestamp, seven features, strain level and score — the training set for `train_classifier.py`. Written on every run and **not tracked in git**; it is recreated automatically when the server starts |
+| `data/sample_session_log.csv` | A 1,000-row sample of the above, committed so the schema and a usable example travel with the repository |
 | `data/netra_rakshaka.db` | SQLite: `telemetry_history`, `break_events`, `user_settings`, `compliance_log`, `deep_work_sessions` |
 | `data/breaks_log.txt` | Plain-text audit trail of enforced breaks |
 | `data/wifi_cache.json` | Last Wi-Fi frame, used as a cross-process cache |
@@ -295,10 +296,8 @@ The following are **planned, not yet implemented** in this repository:
 
 ### Known limitations
 
-- `app.py` registers `/sensor_data` twice; the first handler wins, so the second is dead code that should be removed
+- **The shipped model is binary.** `models/strain_classifier.pkl` was trained on a log containing only `Safe` and `Critical` rows, so it cannot predict `Moderate` — that state currently reaches the console only through the rule-based fallback. The log is also dominated by `blink_rate: 0` (no spectacles attached) and by fixed simulator constants, so the model has largely learned *sensor absence* rather than physiology. Retraining on real wear data, with all three classes represented, is the highest-value next step
 - Humidity is a fixed placeholder — no humidity sensor is fitted
-- The Deep Work device-button path listens for a different event name than the server currently emits
-- Break counts shown in Analytics are per-session, not read back from the database
 
 ---
 
