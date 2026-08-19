@@ -752,7 +752,7 @@ function startIntervention() {
   breakCount++;
   lastBreakAt = Date.now();
   reset202020Timer('enforced break');    // a stronger alert already rested the eyes
-  logEvent('crit', 'Enforced break started', '20 s · display brightness reduced to 20%');
+  logEvent('crit', 'Enforced break started', '20 s · display dimmed, previous brightness restored afterwards');
 
   // Persist it, so Analytics reports breaks across sessions rather than a tally
   // that resets with the page.
@@ -784,7 +784,7 @@ function startIntervention() {
       if (fsBtn) fsBtn.remove();
       exitBreakFullscreen();
       breakActive = false;
-      logEvent('ok', 'Break completed', 'brightness restored · 50 s enforcement cooldown');
+      logEvent('ok', 'Break completed', 'brightness returned to its previous level · 50 s cooldown');
     }
   }, 1000);
 }

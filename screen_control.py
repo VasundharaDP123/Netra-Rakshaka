@@ -46,6 +46,21 @@ def sync_deep_work_state():
     except Exception:
         pass
 
+# How dark to go during a break. The screen is never set ABOVE its current
+# level: on a laptop already at 0% a "dim to 20" would brighten it, which is the
+# opposite of a rest.
+DIM_LEVEL = 20
+
+def get_brightness():
+    """Current panel brightness 0-100, or None if the panel does not report it."""
+    try:
+        pythoncom.CoInitialize()
+        c = wmi.WMI(namespace='wmi')
+        return int(c.WmiMonitorBrightness()[0].CurrentBrightness)
+    except Exception as e:
+        print(f"Warning: could not read current brightness ({e}).")
+        return None
+
 def set_brightness(level):
     try:
         pythoncom.CoInitialize()
@@ -156,7 +171,21 @@ def main_loop():
     while True:
         if trigger_dim:
             print("🔴 TRIGGERING SCREEN DIM!")
-            set_brightness(20)
+
+            # Remember what the user had before touching anything, so the break
+            # restores THEIR brightness instead of forcing 100%.
+            previous_brightness = get_brightness()
+            if previous_brightness is None:
+                dim_target = DIM_LEVEL
+                print("   (brightness unreadable - it will be left dimmed after the break)")
+            else:
+                dim_target = min(DIM_LEVEL, previous_brightness)
+                print(f"   (was {previous_brightness}% -> dimming to {dim_target}%)")
+
+            if previous_brightness is None or dim_target < previous_brightness:
+                set_brightness(dim_target)
+            else:
+                print("   (already at or below the dim level - leaving brightness alone)")
             
             if not os.path.exists('data'):
                 os.makedirs('data')
@@ -182,8 +211,13 @@ def main_loop():
             # Show overlay (blocks for 20s) in main thread
             show_overlay()
             
-            print("✅ Restoring screen brightness")
-            set_brightness(100)
+            if previous_brightness is None:
+                print("⚠️  Original brightness unknown - not forcing a level. Adjust manually if needed.")
+            elif dim_target < previous_brightness:
+                print(f"✅ Restoring screen brightness to {previous_brightness}%")
+                set_brightness(previous_brightness)
+            else:
+                print("✅ Break over (brightness was never changed)")
             print("⏳ Cooldown period active (50s) to prevent loop...")
         
         time.sleep(0.1)
