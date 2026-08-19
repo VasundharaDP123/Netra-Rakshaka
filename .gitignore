@@ -6,8 +6,11 @@ data/wifi_cache.json
 .vscode/
 .idea/
 
-# Runtime data: regenerated on every run, kept out of the repo
+# Runtime data: written every time the app runs. Tracking these meant a teammate
+# could not pull while the server was running, because merely using the project
+# dirtied files the incoming commits touched.
 data/session_log.csv
+data/breaks_log.txt
 
 # Wi-Fi credentials: local only, never committed
 firmware/src/secrets.h
