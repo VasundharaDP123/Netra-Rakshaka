@@ -31,6 +31,22 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 init_log()
 init_db()
 
+# ── Deep Work state ────────────────────────────────────────────────────────
+# Deep Work has to be a fact the whole system agrees on, not just browser state:
+# screen_control.py runs in its own process and would otherwise keep enforcing
+# breaks at OS level while the dashboard says the session is silent. The expiry
+# is stored so a missed "complete" event can never suppress breaks for ever.
+deep_work_until = 0.0
+deep_work_lock = threading.Lock()
+
+def deep_work_active():
+    with deep_work_lock:
+        return time.time() < deep_work_until
+
+def deep_work_remaining():
+    with deep_work_lock:
+        return max(0, int(deep_work_until - time.time()))
+
 CACHE_FILE = os.path.join("data", "wifi_cache.json")
 last_wifi_data = None
 last_wifi_lock = threading.Lock()
@@ -156,7 +172,11 @@ def stream_data():
                       f" mad:{data.get('ir_mad',0):>3}"
                       f" {'SHUT' if data.get('eye_closed') else 'open'}")
 
-            print(f"📡 [LIVE SENSORS] {status_icon} Strain: {strain_level:<8} ({strain_score:>2}/100) | Distance: {dist_s} | Blink Rate: {blink:>2}/min | Blinks: {blinks:>3} | Env Temp: {temp_s} | Head Tilt: {tilt_s} | Lux: {lux_s}{bus}{ir}")
+            source_tag = data.get("_source", "SERIAL")
+            if source_tag == "HARDWARE_DISCONNECTED":
+                print(f"📡 [SPECTACLES DISCONNECTED] Waiting for hardware... (Close Serial Monitor if open, or check USB/Wi-Fi connection)")
+            else:
+                print(f"📡 [{source_tag}] {status_icon} Strain: {strain_level:<8} ({strain_score:>2}/100) | Distance: {dist_s} | Blink Rate: {blink:>2}/min | Blinks: {blinks:>3} | Env Temp: {temp_s} | Head Tilt: {tilt_s} | Lux: {lux_s}{bus}{ir}")
             last_print_time = now
 
             # Offline sensors are no longer flagged inline, so warn separately and
@@ -211,6 +231,11 @@ def record_compliance():
 def start_deep_work():
     req = request.json or {}
     duration_min = int(req.get("duration_min", 25))
+
+    global deep_work_until
+    with deep_work_lock:
+        deep_work_until = time.time() + duration_min * 60
+
     socketio.emit("deep_work_event", {"action": "start", "duration_min": duration_min})
     print(f"\n🧠 [DEEP WORK MODE STARTED] {duration_min} minutes silent focus session active.\n")
     return jsonify({"status": "success", "duration_min": duration_min})
@@ -222,9 +247,19 @@ def complete_deep_work():
     alerts = int(req.get("alerts", 0))
     status = req.get("status", "completed")
     log_deep_work_session_db(duration_min=duration_min, alerts=alerts, status=status)
+
+    global deep_work_until
+    with deep_work_lock:
+        deep_work_until = 0.0
+
     socketio.emit("deep_work_event", {"action": "complete", "alerts": alerts})
     print(f"\n🎉 [DEEP WORK SESSION COMPLETED] {duration_min} min session. {alerts} critical alerts.\n")
     return jsonify({"status": "success"})
+
+@app.route("/api/deep_work_status", methods=["GET"])
+def deep_work_status():
+    """Lets screen_control.py sync on connect, or recover after a restart."""
+    return jsonify({"active": deep_work_active(), "remaining_sec": deep_work_remaining()})
 
 @app.route("/api/scenario", methods=["POST"])
 def set_scenario():

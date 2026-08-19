@@ -1267,6 +1267,16 @@ function stopDeepWork(userCancelled = true) {
   if (!deepWorkActive) return;
   deepWorkActive = false;
   lastDeepWorkEndAt = Date.now();
+
+  // Tell the server the session is over, so screen_control.py resumes enforcing
+  // breaks. Without this an early finish would leave the agent silent until the
+  // original expiry, and the display would go unprotected.
+  fetch('/api/deep_work_complete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duration_min: Math.round(deepWorkTotal / 60),
+                           alerts: deepWorkEpisodes,
+                           status: userCancelled ? 'cancelled' : 'ended' })
+  }).catch(() => {});
   criticalSecInDeepWork = 0;
   inCriticalEpisode = false;
   updateDeepWorkUI();
@@ -1288,10 +1298,7 @@ function completeDeepWork() {
     episodes === 0 ? 'ok' : 'warn',
     [{ label: 'Rest now', action: () => trigger202020(true) }]);
 
-  fetch('/api/deep_work_complete', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ duration_min: minutes, critical_episodes: episodes, status: 'completed' })
-  }).catch(() => {});
+  // stopDeepWork() above already reported the session to the server.
 }
 
 /* Driven by the 1 Hz render loop, so the session clock and the telemetry it

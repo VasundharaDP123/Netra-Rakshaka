@@ -18,6 +18,34 @@ agent_start_time = time.time()
 CRITICAL_STREAK_REQUIRED = 15  # ~3s of sustained Critical at 5 packets/sec
 STARTUP_GRACE_SEC = 60         # no breaks while the sensors are still settling
 
+SERVER = 'http://127.0.0.1:5000'
+
+# Deep Work silences this agent too. The dashboard suppressing its own overlay is
+# not enough: this process dims the physical display, so a focus session would be
+# interrupted at OS level no matter what the browser showed.
+#
+# An absolute expiry is stored rather than a flag, so a missed "complete" event
+# can never leave the screen unprotected for ever - the suppression lapses on its
+# own when the session would have ended.
+deep_work_until = 0.0
+
+def deep_work_active():
+    return time.time() < deep_work_until
+
+def sync_deep_work_state():
+    """Ask the server on connect, so an agent started mid-session is not deaf."""
+    global deep_work_until
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen(SERVER + '/api/deep_work_status', timeout=3) as r:
+            state = _json.loads(r.read().decode())
+        if state.get('active'):
+            remaining = int(state.get('remaining_sec', 0))
+            deep_work_until = time.time() + remaining
+            print('[DEEP WORK] session already running - breaks held for %ds' % remaining)
+    except Exception:
+        pass
+
 def set_brightness(level):
     try:
         pythoncom.CoInitialize()
@@ -81,6 +109,20 @@ def show_overlay():
     countdown(20)
     root.mainloop()
 
+@sio.on('deep_work_event')
+def on_deep_work_event(data):
+    global deep_work_until, critical_count
+    action = (data or {}).get('action')
+    if action == 'start':
+        mins = int((data or {}).get('duration_min', 25))
+        deep_work_until = time.time() + mins * 60
+        critical_count = 0          # drop any streak built up before the session
+        print('[DEEP WORK] %d min focus session - enforced breaks held until it ends.' % mins)
+    elif action in ('complete', 'end', 'cancel'):
+        deep_work_until = 0.0
+        critical_count = 0
+        print('[DEEP WORK ENDED] Enforced breaks are active again.')
+
 @sio.on('sensor_update')
 def on_sensor_update(data):
     global critical_count, trigger_dim, last_dim_time
@@ -92,6 +134,12 @@ def on_sensor_update(data):
 
     # 50 second cooldown after a break so you don't get trapped in a loop!
     if time.time() - last_dim_time < 50:
+        return
+
+    # Deep Work: hold every break, and do not accumulate a streak while holding,
+    # so the session does not end with a break already queued up.
+    if deep_work_active():
+        critical_count = 0
         return
 
     if data['strain_level'] == 'Critical':

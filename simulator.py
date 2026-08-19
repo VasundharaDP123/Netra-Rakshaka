@@ -59,26 +59,33 @@ class Simulator:
             if not has_port:
                 # Scan for USB Serial ports
                 ports = list(serial.tools.list_ports.comports())
-                target_port = None
+                candidate_ports = []
                 for port in ports:
                     desc = port.description.lower()
-                    device = port.device
-                    # Common USB-Serial chip drivers or board descriptions
-                    if any(x in desc for x in ["usb", "serial", "cp210", "ch340", "espressif", "jtag"]):
-                        target_port = device
-                        break
+                    dev = port.device.lower()
+                    # Filter for typical serial devices, USB UART bridges, and ESP32 chips
+                    if any(x in desc or x in dev for x in ["usb", "serial", "cp210", "ch340", "espressif", "jtag", "com"]):
+                        candidate_ports.append(port.device)
                 
-                if target_port:
+                connected = False
+                for target_port in candidate_ports:
                     try:
                         ser = serial.Serial(target_port, 115200, timeout=1.5)
                         with self.lock:
                             self.serial_port = ser
                             self.use_hardware = True
-                    except Exception:
-                        with self.lock:
-                            self.use_hardware = False
-                        time.sleep(5)
-                else:
+                        print(f"\n✅ [SERIAL CONNECTED] Spectacles hardware successfully connected on {target_port} at 115200 baud!\n")
+                        connected = True
+                        break
+                    except PermissionError:
+                        print(f"\n⚠️  [SERIAL ERROR] Cannot open {target_port}: Access is denied (PermissionError).")
+                        print(f"    👉 Another program (like PlatformIO Serial Monitor or Arduino IDE) has locked this port.")
+                        print(f"    👉 Please CLOSE the Serial Monitor in your IDE so app.py can read your hardware.\n")
+                    except Exception as err:
+                        # Silently try next port if connection failed
+                        pass
+
+                if not connected:
                     with self.lock:
                         self.use_hardware = False
                     time.sleep(4)
@@ -110,7 +117,7 @@ class Simulator:
                             m_blinks = re.search(r"Blinks:\s*(\d+)", decoded_line)
                             blinks = int(m_blinks.group(1)) if m_blinks else 0
                             
-                            m_temp = re.search(r"Env Temp:\s*([\d\.]+)", decoded_line)
+                            m_temp = re.search(r"(?:Env|Eye)\s*Temp:\s*([\d\.]+)", decoded_line)
                             temp = float(m_temp.group(1)) if m_temp else 34.5
                             
                             m_tilt = re.search(r"Head Tilt:\s*(\d+)", decoded_line)
