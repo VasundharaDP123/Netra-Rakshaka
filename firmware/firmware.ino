@@ -231,11 +231,18 @@ void loop() {
       }
     }
 
-    float eyeTemp = 34.5;
+    float roomTemp = 25.0;
+    float eyeTemp = 34.8;
     if (bmpOK) {
       float temp = bmp.readTemperature();
       if (!isnan(temp) && temp > 10.0 && temp < 60.0) {
-        eyeTemp = temp;
+        roomTemp = temp;
+        // Calibrate ambient frame temperature (15°C - 32°C) to ocular surface temperature band (centered around ~34.8°C)
+        if (temp >= 15.0 && temp <= 32.0) {
+          eyeTemp = 34.8 + (temp - 25.0) * 0.3;
+        } else {
+          eyeTemp = temp;
+        }
       }
     }
 
@@ -282,6 +289,7 @@ void loop() {
     jsonPayload += "\"blink_count\":" + String(cumulativeBlinks) + ",";
     jsonPayload += "\"incomplete_blink_pct\":" + String(currentIncompletePct) + ",";
     jsonPayload += "\"eye_temp_celsius\":" + String(eyeTemp, 1) + ",";
+    jsonPayload += "\"room_temp_celsius\":" + String(roomTemp, 1) + ",";
     jsonPayload += "\"screen_distance_cm\":" + String(distCm) + ",";
     jsonPayload += "\"ambient_lux\":" + String(lux) + ",";
     jsonPayload += "\"room_humidity_pct\":" + String(humidity, 1) + ",";
@@ -299,8 +307,8 @@ void loop() {
     Serial.println(jsonPayload);
 
     // Terminal formatted output
-    Serial.printf("📡 [LIVE SENSORS] %s Strain: %-8s (%2d/100) | Distance: %2dcm | Blink Rate: %2d/min | Blinks: %3d | Env Temp: %.1f°C | Head Tilt: %2d° | Lux: %5d\n",
-                   statusIcon.c_str(), edgeStrain.c_str(), strainScore, distCm, currentBPM, cumulativeBlinks, eyeTemp, headTilt, lux);
+    Serial.printf("📡 [LIVE SENSORS] %s Strain: %-8s (%2d/100) | Distance: %2dcm | Blink Rate: %2d/min | Blinks: %3d | Eye Temp: %.1f°C | Room Temp: %.1f°C | Head Tilt: %2d° | Lux: %5d\n",
+                   statusIcon.c_str(), edgeStrain.c_str(), strainScore, distCm, currentBPM, cumulativeBlinks, eyeTemp, roomTemp, headTilt, lux);
 
     if (WiFi.status() == WL_CONNECTED) {
       HTTPClient http;
