@@ -47,16 +47,13 @@ int lastValidLux = 300;
 float lastValidRoomTemp = 25.0;
 
 int getRollingBPM(unsigned long now) {
-  unsigned long elapsed = now - bootStartTime;
-  if (elapsed < 3000) return 16;
   int count = 0;
-  unsigned long window = (elapsed < 60000) ? elapsed : 60000;
   for (int i = 0; i < BLINK_HIST_SIZE; i++) {
-    if (blinkHistory[i] > 0 && (now - blinkHistory[i]) <= window) {
+    if (blinkHistory[i] > 0 && (now - blinkHistory[i]) <= 60000) {
       count++;
     }
   }
-  return (int)((count * 60000.0) / (float)window + 0.5);
+  return count;
 }
 
 int scanI2CBus() {
