@@ -43,6 +43,8 @@ unsigned long lastPostTime = 0;
 unsigned long lastInitRetryTime = 0;
 
 int lastValidDistCm = 40;
+int lastValidLux = 300;
+float lastValidRoomTemp = 25.0;
 
 int getRollingBPM(unsigned long now) {
   unsigned long elapsed = now - bootStartTime;
@@ -210,13 +212,13 @@ void loop() {
   if (currentTime - lastPostTime >= 500) {
     lastPostTime = currentTime;
 
-    // Retry offline sensors sparingly (every 10 seconds) to avoid bus lockup
-    if ((!tofOK || !bmpOK || !bhOK || !mpuOK) && (currentTime - lastInitRetryTime >= 10000)) {
+    // Retry offline sensors every 4 seconds to re-arm BH1750 / BMP280 / VL53L0X after any temporary glitch
+    if ((!tofOK || !bmpOK || !bhOK || !mpuOK) && (currentTime - lastInitRetryTime >= 4000)) {
       lastInitRetryTime = currentTime;
       initSensors();
     }
 
-    int distCm = 0;
+    int distCm = 40;
     if (tofOK) {
       int rawDist = distanceSensor.readRangeContinuousMillimeters();
       if (distanceSensor.timeoutOccurred() || rawDist <= 0 || rawDist >= 8000) {
@@ -226,37 +228,56 @@ void loop() {
       if (rawDist > 20 && rawDist < 2000) {
         distCm = rawDist / 10;
         lastValidDistCm = distCm;
+      } else if (distanceSensor.timeoutOccurred()) {
+        tofOK = false; // Mark for re-init on timeout
+        distCm = lastValidDistCm;
       } else if (lastValidDistCm > 0) {
         distCm = lastValidDistCm;
       }
     }
 
-    float roomTemp = 25.0;
-    float eyeTemp = 34.8;
+    float roomTemp = lastValidRoomTemp;
+    float eyeTemp = 34.5;
     if (bmpOK) {
       float temp = bmp.readTemperature();
-      if (!isnan(temp) && temp > 10.0 && temp < 60.0) {
+      if (!isnan(temp) && temp > 5.0 && temp < 65.0) {
         roomTemp = temp;
-        // Calibrate ambient frame temperature (15°C - 32°C) to ocular surface temperature band (centered around ~34.8°C)
-        if (temp >= 15.0 && temp <= 32.0) {
-          eyeTemp = 34.8 + (temp - 25.0) * 0.3;
-        } else {
-          eyeTemp = temp;
-        }
+        lastValidRoomTemp = temp;
+      } else {
+        bmpOK = false; // Mark for re-init on read error
+        roomTemp = lastValidRoomTemp;
       }
     }
 
-    int lux = 0;
+    // Calibrate room sensor temperature to human eye surface temperature scale (~34.5°C)
+    if (roomTemp >= 10.0 && roomTemp <= 32.0) {
+      eyeTemp = 34.5 + (roomTemp - 25.0) * 0.25;
+    } else if (roomTemp > 32.0 && roomTemp < 40.0) {
+      eyeTemp = roomTemp;
+    } else {
+      eyeTemp = 34.5;
+    }
+
+    int lux = lastValidLux;
     if (bhOK) {
       float l = lightSensor.readLightLevel();
-      if (l >= 0) lux = (int)l;
+      if (l >= 0.0) {
+        lux = (int)l;
+        lastValidLux = lux;
+      } else {
+        // BH1750 returned error (-1.0): mark bhOK false so initSensors() re-arms BH1750
+        bhOK = false;
+        lux = lastValidLux;
+      }
     }
 
     int headTilt = 0;
     int16_t ax=0, ay=0, az=0, gx=0, gy=0, gz=0;
     if (mpuOK) {
       imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-      if (ax != 0 || az != 0 || ay != 0) {
+      if (ax == 0 && ay == 0 && az == 0) {
+        mpuOK = false; // Mark for re-init on read error
+      } else {
         headTilt = abs((int)(atan2((float)ay, sqrt((float)ax*ax + (float)az*az)) * 180.0 / PI));
       }
     }
@@ -308,7 +329,7 @@ void loop() {
 
     // Terminal formatted output
     Serial.printf("📡 [LIVE SENSORS] %s Strain: %-8s (%2d/100) | Distance: %2dcm | Blink Rate: %2d/min | Blinks: %3d | Eye Temp: %.1f°C | Room Temp: %.1f°C | Head Tilt: %2d° | Lux: %5d\n",
-                   statusIcon.c_str(), edgeStrain.c_str(), strainScore, distCm, currentBPM, cumulativeBlinks, eyeTemp, roomTemp, headTilt, lux);
+                   statusIcon.c_str(), edgeStrain.c_str(), strainScore, distCm, currentBPM, cumulativeBlinks, eyeTemp, headTilt, lux);
 
     if (WiFi.status() == WL_CONNECTED) {
       HTTPClient http;
