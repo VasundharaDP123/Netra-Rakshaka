@@ -93,7 +93,7 @@ curl -X POST http://127.0.0.1:5000/sensor_data \
   -H "Content-Type: application/json" \
   -d '{"blink_rate":16,"screen_distance_cm":44,"eye_temp_celsius":34.6,"ambient_lux":280,
        "head_tilt_degrees":6,"room_humidity_pct":50,"blink_duration_ms":180,"blink_count":90,
-       "room_temp_celsius":25.1,"tof_ok":1,"bmp_ok":1,"bh_ok":1,"mpu_ok":1,"humidity_ok":0}'
+       "room_temp_celsius":25.1,"tcrt_ok":1,"tof_ok":1,"bmp_ok":1,"bh_ok":1,"mpu_ok":1,"humidity_ok":0}'
 ```
 
 The console badge should flip to **ESP32 · Wi-Fi** within a second and hold it for 30 s.

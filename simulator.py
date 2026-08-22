@@ -138,7 +138,8 @@ class Simulator:
                                 "tof_ok": 1 if dist > 0 else 0,
                                 "bmp_ok": 1 if temp > 0 else 0,
                                 "bh_ok": 1,
-                                "mpu_ok": 1
+                                "mpu_ok": 1,
+                                "tcrt_ok": 1
                             }
 
                         if parsed_data:
@@ -168,6 +169,7 @@ class Simulator:
     SUBSTITUTE_OFFLINE = os.getenv("NR_SUBSTITUTE_OFFLINE", "0") == "1"
 
     HEALTH_FLAGS = {
+        "tcrt_ok": ["blink_rate", "blink_count", "blink_duration_ms"],
         "tof_ok":  ["screen_distance_cm"],
         "bmp_ok":  ["eye_temp_celsius", "room_temp_celsius"],
         "bh_ok":   ["ambient_lux"],
@@ -243,6 +245,7 @@ class Simulator:
             "bmp_ok": 0,
             "bh_ok": 0,
             "mpu_ok": 0,
+            "tcrt_ok": 0,
             "_source": "WAITING_FOR_HARDWARE"
         }
 

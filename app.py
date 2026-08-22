@@ -181,7 +181,7 @@ def stream_data():
 
             # Offline sensors are no longer flagged inline, so warn separately and
             # sparingly - otherwise a 0 reading looks identical to a real one.
-            offline = [n for n, k in (("ToF", "tof_ok"), ("BMP280", "bmp_ok"),
+            offline = [n for n, k in (("TCRT5000", "tcrt_ok"), ("ToF", "tof_ok"), ("BMP280", "bmp_ok"),
                                       ("BH1750", "bh_ok"), ("MPU6050", "mpu_ok"))
                        if k in data and not data[k]]
             if offline and now - last_warn_time >= 15.0:

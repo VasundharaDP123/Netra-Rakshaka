@@ -341,8 +341,14 @@ function liveFrame(d) {
     blinkCount: Math.round(num(d.blink_count)),
     session: Math.round(num(d.continuous_screen_time_min)),
     /* firmware health flags — absent when the packet came from the simulator */
-    health: ('tof_ok' in d || 'mpu_ok' in d)
-      ? { tof: !!d.tof_ok, bmp: !!d.bmp_ok, bh: !!d.bh_ok, mpu: !!d.mpu_ok }
+    health: ('tof_ok' in d || 'mpu_ok' in d || 'tcrt_ok' in d || 'ir_ok' in d)
+      ? {
+          tcrt: ('tcrt_ok' in d || 'ir_ok' in d) ? !!(d.tcrt_ok ?? d.ir_ok) : true,
+          tof: !!d.tof_ok,
+          bmp: !!d.bmp_ok,
+          bh: !!d.bh_ok,
+          mpu: !!d.mpu_ok
+        }
       : null,
     humidityMeasured: !('humidity_ok' in d) || !!d.humidity_ok,
     substituted: Array.isArray(d.simulated_fields) ? d.simulated_fields : [],
@@ -675,9 +681,9 @@ function render() {
 
 /* Sensor rows: green when the firmware reports the sensor responding, red when
    it does not, amber when the value is substituted, neutral without live flags. */
-const HEALTH_ROWS = { tof: 'dev-tof', bmp: 'dev-bmp', bh: 'dev-bh', mpu: 'dev-mpu' };
+const HEALTH_ROWS = { tcrt: 'dev-tcrt', tof: 'dev-tof', bmp: 'dev-bmp', bh: 'dev-bh', mpu: 'dev-mpu' };
 const HEALTH_FIELD = {
-  tof: 'screen_distance_cm', bmp: 'eye_temp_celsius', bh: 'ambient_lux', mpu: 'head_tilt_degrees'
+  tcrt: 'blink_rate', tof: 'screen_distance_cm', bmp: 'eye_temp_celsius', bh: 'ambient_lux', mpu: 'head_tilt_degrees'
 };
 const healthState = {};
 

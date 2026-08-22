@@ -63,7 +63,7 @@ flowchart LR
 
 **Telemetry precedence.** `get_active_sensor_data()` prefers a Wi-Fi frame received in the last 30 s, falls back to the disk cache, then to USB serial, and finally to the built-in simulator — so the console always renders, with the active source labelled in the top bar.
 
-**Sensor honesty.** When the firmware reports a sensor as not responding (`tof_ok`, `bmp_ok`, `bh_ok`, `mpu_ok`), the backend substitutes a simulated value **for that field only** and lists it in `simulated_fields`. A dead sensor sends `0`, which is a plausible-looking reading that would otherwise poison both the chart and the classifier.
+**Sensor honesty.** When the firmware reports a sensor as not responding (`tcrt_ok`, `tof_ok`, `bmp_ok`, `bh_ok`, `mpu_ok`), the backend substitutes a simulated value **for that field only** and lists it in `simulated_fields`. A dead sensor sends `0`, which is a plausible-looking reading that would otherwise poison both the chart and the classifier.
 
 A detailed hardware diagram is in [`Architecture_Diagram.png`](Architecture_Diagram.png).
 
@@ -167,7 +167,7 @@ pio device monitor        # 115200 baud
   "eye_temp_celsius": 34.8, "room_temp_celsius": 25.0,
   "screen_distance_cm": 46, "ambient_lux": 300,
   "room_humidity_pct": 50, "head_tilt_degrees": 5, "drowsy_events": 0,
-  "tof_ok": 1, "bmp_ok": 1, "bh_ok": 1, "mpu_ok": 1, "humidity_ok": 0,
+  "tcrt_ok": 1, "tof_ok": 1, "bmp_ok": 1, "bh_ok": 1, "mpu_ok": 1, "humidity_ok": 0,
   "i2c": "0x29,0x68,0x76", "sda": 1, "scl": 1
 }
 ```
