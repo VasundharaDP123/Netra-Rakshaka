@@ -40,6 +40,9 @@ unsigned long bootStartTime = 0;
 
 unsigned long lastBPMCalcTime = 0;
 unsigned long lastPostTime = 0;
+unsigned long lastInitRetryTime = 0;
+
+int lastValidDistCm = 40;
 
 int getRollingBPM(unsigned long now) {
   unsigned long elapsed = now - bootStartTime;
@@ -66,8 +69,9 @@ int scanI2CBus() {
 }
 
 bool autoDetectI2CPins() {
+  // Candidate I2C pin pairs (excluding Pin 4 which is reserved for IR_PIN)
   static const int CANDIDATES[][2] = {
-    {8, 9}, {9, 8}, {4, 5}, {5, 4}, {1, 2}, {2, 1}, {17, 18}, {18, 17}, {21, 47}, {47, 21}
+    {8, 9}, {9, 8}, {21, 22}, {22, 21}, {1, 2}, {2, 1}, {17, 18}, {18, 17}, {47, 21}
   };
   const int n = sizeof(CANDIDATES) / sizeof(CANDIDATES[0]);
 
@@ -95,7 +99,7 @@ bool autoDetectI2CPins() {
 
 void initSensors() {
   if (!tofOK) {
-    distanceSensor.setTimeout(300);
+    distanceSensor.setTimeout(500);
     tofOK = distanceSensor.init();
     if (tofOK) distanceSensor.startContinuous();
   }
@@ -103,6 +107,13 @@ void initSensors() {
   if (!bmpOK) {
     bmpOK = bmp.begin(0x76);
     if (!bmpOK) bmpOK = bmp.begin(0x77);
+    if (bmpOK) {
+      bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
+                      Adafruit_BMP280::SAMPLING_X2,
+                      Adafruit_BMP280::SAMPLING_X16,
+                      Adafruit_BMP280::FILTER_X16,
+                      Adafruit_BMP280::STANDBY_MS_500);
+    }
   }
 
   if (!bhOK) {
@@ -119,13 +130,14 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  Serial.println("Initializing Netra Rakshaka Sensors...");
+  autoDetectI2CPins();
+  
   pinMode(IR_PIN, INPUT);
   analogReadResolution(12);
 
   for (int i = 0; i < BLINK_HIST_SIZE; i++) blinkHistory[i] = 0;
 
-  Serial.println("Initializing Netra Rakshaka Sensors...");
-  autoDetectI2CPins();
   initSensors();
 
   Serial.print("Sensor Health -> TCRT5000: "); Serial.print(tcrtOK);
@@ -155,6 +167,7 @@ void setup() {
   bootStartTime = millis();
   lastBPMCalcTime = millis();
   lastPostTime = millis();
+  lastInitRetryTime = millis();
 }
 
 void loop() {
@@ -163,11 +176,12 @@ void loop() {
   // 1. HIGH-SENSITIVITY BLINK DETECTION
   int currentIR = analogRead(IR_PIN);
   if (!eyeClosed) {
-    baselineIR = (baselineIR * 19 + currentIR) / 20;
+    baselineIR = (baselineIR * 31 + currentIR) / 32;
   }
 
   int delta = abs(currentIR - baselineIR);
-  bool candidateClosed = (delta > 35) || (digitalRead(IR_PIN) == HIGH);
+  // Pure analog threshold detection (no digitalRead interference on pin 4)
+  bool candidateClosed = (delta > 45);
 
   if (candidateClosed && !eyeClosed) {
     eyeClosed = true;
@@ -175,7 +189,7 @@ void loop() {
   } else if (!candidateClosed && eyeClosed) {
     eyeClosed = false;
     unsigned long duration = currentTime - closeStartTime;
-    if (duration >= 30 && duration <= 900) {
+    if (duration >= 40 && duration <= 900) {
       cumulativeBlinks++;
       totalBlinks++;
       blinkHistory[blinkHistHead] = currentTime;
@@ -196,22 +210,33 @@ void loop() {
   if (currentTime - lastPostTime >= 500) {
     lastPostTime = currentTime;
 
-    if (!tofOK || !bmpOK || !bhOK || !mpuOK) {
+    // Retry offline sensors sparingly (every 10 seconds) to avoid bus lockup
+    if ((!tofOK || !bmpOK || !bhOK || !mpuOK) && (currentTime - lastInitRetryTime >= 10000)) {
+      lastInitRetryTime = currentTime;
       initSensors();
     }
 
     int distCm = 0;
     if (tofOK) {
       int rawDist = distanceSensor.readRangeContinuousMillimeters();
-      if (!distanceSensor.timeoutOccurred() && rawDist > 0 && rawDist < 8000) {
+      if (distanceSensor.timeoutOccurred() || rawDist <= 0 || rawDist >= 8000) {
+        distanceSensor.setTimeout(500);
+        rawDist = distanceSensor.readRangeSingleMillimeters();
+      }
+      if (rawDist > 20 && rawDist < 2000) {
         distCm = rawDist / 10;
+        lastValidDistCm = distCm;
+      } else if (lastValidDistCm > 0) {
+        distCm = lastValidDistCm;
       }
     }
 
-    float eyeTemp = 0.0;
+    float eyeTemp = 34.5;
     if (bmpOK) {
       float temp = bmp.readTemperature();
-      if (!isnan(temp) && temp > 10.0 && temp < 80.0) eyeTemp = temp;
+      if (!isnan(temp) && temp > 10.0 && temp < 60.0) {
+        eyeTemp = temp;
+      }
     }
 
     int lux = 0;
@@ -224,8 +249,8 @@ void loop() {
     int16_t ax=0, ay=0, az=0, gx=0, gy=0, gz=0;
     if (mpuOK) {
       imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-      if (ax != 0 || az != 0) {
-        headTilt = abs((int)(atan2(ay, sqrt((float)ax*ax + (float)az*az)) * 180.0 / PI));
+      if (ax != 0 || az != 0 || ay != 0) {
+        headTilt = abs((int)(atan2((float)ay, sqrt((float)ax*ax + (float)az*az)) * 180.0 / PI));
       }
     }
 
