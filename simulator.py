@@ -45,7 +45,8 @@ class Simulator:
                 try:
                     with open(cache_file, "r") as f:
                         cache_data = json.load(f)
-                    if time.time() - cache_data.get("_received_at", 0) < 15.0:
+                    rec_time = cache_data.get("_received_at", 0)
+                    if 0 <= time.time() - rec_time < 15.0:
                         time.sleep(2)
                         continue
                 except Exception:

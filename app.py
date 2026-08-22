@@ -82,7 +82,7 @@ def get_active_sensor_data():
     with last_wifi_lock:
         if last_wifi_data:
             rec_time = last_wifi_data.get("_received_at", 0)
-            if time.time() - rec_time < 30.0:
+            if 0 <= time.time() - rec_time < 30.0:
                 data_clean = {k: v for k, v in last_wifi_data.items() if not k.startswith("_")}
                 if "continuous_screen_time_min" not in data_clean:
                     data_clean["continuous_screen_time_min"] = 0
@@ -95,7 +95,7 @@ def get_active_sensor_data():
             with open(CACHE_FILE, "r") as f:
                 data = json.load(f)
             rec_time = data.get("_received_at", 0)
-            if time.time() - rec_time < 30.0:
+            if 0 <= time.time() - rec_time < 30.0:
                 data_clean = {k: v for k, v in data.items() if not k.startswith("_")}
                 if "continuous_screen_time_min" not in data_clean:
                     data_clean["continuous_screen_time_min"] = 0
