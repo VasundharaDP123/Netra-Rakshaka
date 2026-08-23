@@ -305,8 +305,12 @@ let livePacket = null;
 let seenPackets = -1, staleRenders = 0;
 const STALE_LIMIT = 5;
 
+/* Say plainly whether the spectacles are connected, and over what. The old
+   wording ("Wi-Fi telemetry", "USB serial telemetry") described the transport
+   but never actually said "connected", so at a glance the chip read the same
+   whether the hardware was live or not. */
 const SOURCE_LABEL = {
-  WIFI: 'Wi-Fi telemetry', SERIAL: 'USB serial telemetry',
+  WIFI: 'Spectacles connected (Wi-Fi)', SERIAL: 'Spectacles connected (USB)',
   SIMULATOR: 'Backend simulator', FALLBACK: 'Local simulation',
   HARDWARE_DISCONNECTED: 'Spectacles disconnected'
 };
@@ -326,7 +330,11 @@ function liveFrame(d) {
   const temp = num(d.eye_temp_celsius);
   return {
     source: d._source || 'SERIAL',
-    live: true,
+    /* A disconnected packet is still a packet from the server, but it is not
+       live hardware - it is the row of zeros app.py sends when nothing is
+       attached. Marking it live coloured the chip green while it read
+       "Spectacles disconnected", which is a contradiction. */
+    live: d._source !== 'HARDWARE_DISCONNECTED',
     level, score,
     conf: 90 + (score % 10) * 0.9,           // classifier certainty band, for display
     note: LEVEL_NOTE[level] || LEVEL_NOTE.Safe,
