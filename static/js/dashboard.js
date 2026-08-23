@@ -1533,6 +1533,97 @@ bind('an-close', 'click', closeAnalyticsModal);
 bind('an-tab-daily', 'click', () => renderAnalytics('daily'));
 bind('an-tab-weekly', 'click', () => renderAnalytics('weekly'));
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Report download + AI recommendations
+
+   Both work on the recorded SQLite history for the selected window, so they
+   follow the Daily/Weekly tabs. Nothing here reads the live simulator buffer -
+   a clinical report has to describe what was actually measured.
+   ══════════════════════════════════════════════════════════════════════════ */
+bind('an-download', 'click', () => {
+  const btn = $('an-download'), label = $('an-download-label');
+  if (!btn || btn.disabled) return;
+  const win = currentAnalyticsWindow || 'daily';
+
+  // The PDF is built server-side and may call the AI first, so it can take a
+  // few seconds. Say so, rather than leaving a dead-looking button.
+  btn.disabled = true;
+  const original = label.textContent;
+  label.textContent = 'Preparing report…';
+
+  // A hidden anchor triggers the browser's own download for the attachment.
+  const a = document.createElement('a');
+  a.href = `/api/report/download?window=${encodeURIComponent(win)}`;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => { btn.disabled = false; label.textContent = original; }, 4000);
+  logEvent('info', 'Health report downloaded', `${win} report generated from recorded data`);
+});
+
+function renderAIRecommendations(payload) {
+  const body = $('an-ai-body'), src = $('an-ai-source'), fnd = $('an-ai-findings');
+  if (!body) return;
+
+  if (!payload.has_data) {
+    body.textContent = 'No sensor data was recorded in this period, so there is nothing to '
+                     + 'analyse. Connect the spectacles, record a session, then try again.';
+    if (src) src.style.display = 'none';
+    if (fnd) fnd.style.display = 'none';
+    return;
+  }
+
+  // The AI text is the recommendation. When it is unavailable we do not fake
+  // one - we say why, and show the findings computed directly from the data.
+  body.textContent = payload.ai_text || '';
+
+  if (fnd) {
+    if (!payload.ai_ok && payload.findings && payload.findings.length) {
+      fnd.innerHTML = '<div style="font-size:12px;color:#6a7585;margin-bottom:8px;">'
+        + 'Measured findings from your data:</div>'
+        + payload.findings.map(f =>
+            `<div style="margin-bottom:10px;">
+               <div style="color:#ef5d6f;font-weight:600;font-size:13px;">${f.title}</div>
+               <div style="font-size:13px;color:#c3ccd9;">${f.detail}</div>
+             </div>`).join('');
+      fnd.style.display = 'block';
+    } else {
+      fnd.style.display = 'none';
+    }
+  }
+
+  if (src) {
+    const s = payload.stats || {};
+    src.textContent = payload.ai_ok
+      ? `Source: ${payload.ai_source} · based on ${(s.samples || 0).toLocaleString()} readings `
+        + `over ${s.screen_time_min || 0} minutes of measured screen time.`
+      : `AI unavailable (${payload.ai_source}). The findings above are computed directly `
+        + `from your ${(s.samples || 0).toLocaleString()} recorded readings.`;
+    src.style.display = 'block';
+  }
+}
+
+bind('an-ai-refresh', 'click', () => {
+  const btn = $('an-ai-refresh'), body = $('an-ai-body');
+  if (!btn || btn.disabled) return;
+  const win = currentAnalyticsWindow || 'daily';
+
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Analysing…';
+  if (body) body.textContent = 'Reading your recorded session and generating recommendations…';
+
+  fetch(`/api/recommendations?window=${encodeURIComponent(win)}`)
+    .then(r => r.json())
+    .then(renderAIRecommendations)
+    .catch(() => {
+      if (body) body.textContent = 'Could not reach the server. Check that app.py is running.';
+    })
+    .finally(() => { btn.disabled = false; btn.textContent = original; });
+});
+
 bind('nav-item-settings', 'click', openSettingsModal);
 bind('set-close', 'click', closeSettingsModal);
 bind('cfg-form', 'submit', saveSettings);

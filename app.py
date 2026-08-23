@@ -7,10 +7,16 @@ import time
 
 # Force UTF-8 stdout encoding on Windows to support emojis cleanly
 if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-from flask import Flask, render_template, request, jsonify
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO
 from flask_cors import CORS
+
+from report_generator import collect_report_data, rule_based_findings, build_pdf
+from ai_advisor import get_recommendations, is_configured as ai_is_configured
 
 from simulator import simulator_instance
 from classifier import classify_strain
@@ -174,9 +180,9 @@ def stream_data():
 
             source_tag = data.get("_source", "SERIAL")
             if source_tag == "HARDWARE_DISCONNECTED":
-                print(f"📡 [SPECTACLES DISCONNECTED] Waiting for hardware... (Close Serial Monitor if open, or check USB/Wi-Fi connection)")
+                print(f"[DISCONNECTED] [SPECTACLES DISCONNECTED] Waiting for hardware... (Close Serial Monitor if open, or check USB/Wi-Fi connection)")
             else:
-                print(f"📡 [{source_tag}] {status_icon} Strain: {strain_level:<8} ({strain_score:>2}/100) | Distance: {dist_s} | Blink Rate: {blink:>2}/min | Blinks: {blinks:>3} | Env Temp: {temp_s} | Head Tilt: {tilt_s} | Lux: {lux_s}{bus}{ir}")
+                print(f"[LIVE SENSORS] [{source_tag}] {status_icon} Strain: {strain_level:<8} ({strain_score:>2}/100) | Distance: {dist_s} | Blink Rate: {blink:>2}/min | Blinks: {blinks:>3} | Env Temp: {temp_s} | Head Tilt: {tilt_s} | Lux: {lux_s}{bus}{ir}")
             last_print_time = now
 
             # Offline sensors are no longer flagged inline, so warn separately and
@@ -202,6 +208,64 @@ def analytics():
     window = request.args.get("window", "daily")
     days = 7 if window == "weekly" else 1
     return jsonify(get_analytics_summary(days=days))
+
+# ── Health report + AI recommendations ────────────────────────────────────
+# Both read the recorded SQLite history, never the simulator, and both exclude
+# the zero rows written while no device was connected - see report_generator.
+
+@app.route("/api/recommendations", methods=["GET"])
+def recommendations():
+    """
+    Personalised advice for THIS user's measured data.
+
+    Always returns the deterministic rule-based findings as well, so the panel
+    is never empty: if the AI is unreachable or unconfigured, the user still
+    gets real analysis of their own numbers rather than a blank box.
+    """
+    window = request.args.get("window", "daily")
+    days = 7 if window == "weekly" else 1
+
+    data = collect_report_data(days)
+    findings = rule_based_findings(data)
+
+    ai_text, ai_source, ai_ok = get_recommendations(data)
+
+    return jsonify({
+        "window": window,
+        "has_data": data.get("has_data", False),
+        "stats": data,
+        "findings": [{"title": t, "detail": d} for t, d in findings],
+        "ai_text": ai_text,
+        "ai_source": ai_source,
+        "ai_ok": ai_ok,
+        "ai_configured": ai_is_configured(),
+    })
+
+
+@app.route("/api/report/download", methods=["GET"])
+def download_report():
+    """Build the PDF on demand and send it as a real file download."""
+    window = request.args.get("window", "daily")
+    days = 7 if window == "weekly" else 1
+    include_ai = request.args.get("ai", "1") != "0"
+
+    data = collect_report_data(days)
+    findings = rule_based_findings(data)
+
+    ai_text = ai_source = None
+    if include_ai and data.get("has_data"):
+        text, source, ok = get_recommendations(data)
+        if ok:
+            ai_text, ai_source = text, source
+
+    pdf_bytes = build_pdf(data, findings, ai_text, ai_source)
+
+    stamp = time.strftime("%Y-%m-%d")
+    name = f"Netra-Rakshaka-{'Weekly' if days == 7 else 'Daily'}-Report-{stamp}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 @app.route("/api/settings", methods=["GET", "POST"])
 def user_settings():
