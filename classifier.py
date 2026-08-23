@@ -51,9 +51,13 @@ def classify_strain(data):
     # 0. Trust the ESP32 Hardware Fusion exactly 100% if it exists (Perfect Integration)
     if "edge_ai_strain" in data:
         level = data["edge_ai_strain"]
-        score = 0
-        if level == "Critical": score = 95
-        elif level == "Moderate": score = 50
+        score = data.get("edge_ai_score", 0)
+        
+        # Fallback if the Arduino hasn't been updated yet
+        if score == 0:
+            if level == "Critical": score = 95
+            elif level == "Moderate": score = 50
+            
         return level, score
 
     # 1. Enforce Critical rule when blink rate < 8 bpm after 1 minute
