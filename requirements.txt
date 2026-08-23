@@ -7,3 +7,4 @@ numpy
 wmi
 pyserial
 scikit-learn
+reportlab        # PDF health reports - report_generator.build_pdf()

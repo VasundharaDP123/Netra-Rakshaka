@@ -258,7 +258,27 @@ def download_report():
         if ok:
             ai_text, ai_source = text, source
 
-    pdf_bytes = build_pdf(data, findings, ai_text, ai_source)
+    # If this raises, Flask returns its HTML error page - and because the browser
+    # was told to download the response, the user gets a broken "download.htm"
+    # with no clue what went wrong. Catch it and hand back a readable reason
+    # instead. The usual cause is reportlab missing on a machine that pulled the
+    # code without reinstalling requirements.
+    try:
+        pdf_bytes = build_pdf(data, findings, ai_text, ai_source)
+    except ImportError as e:
+        print(f"[REPORT] Missing dependency: {e}")
+        return Response(
+            "The PDF library is not installed on this machine, so the report "
+            "could not be built.\n\nInstall it and restart the server:\n\n"
+            "    pip install -r requirements.txt\n\n"
+            "or just:\n\n    pip install reportlab\n",
+            status=503, mimetype="text/plain")
+    except Exception as e:
+        print(f"[REPORT] Failed to build report: {type(e).__name__}: {e}")
+        return Response(
+            f"The report could not be generated.\n\n{type(e).__name__}: {e}\n\n"
+            "The server terminal has the full details.\n",
+            status=500, mimetype="text/plain")
 
     stamp = time.strftime("%Y-%m-%d")
     name = f"Netra-Rakshaka-{'Weekly' if days == 7 else 'Daily'}-Report-{stamp}.pdf"
