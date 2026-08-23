@@ -110,16 +110,68 @@ def show_overlay():
     tk.Label(opt3, text="💧", font=('Segoe UI Emoji', 36), fg='white', bg='#161b22').pack()
     tk.Label(opt3, text="Blink slowly\n10 times", font=('DM Sans', 14), fg='#e6edf3', bg='#161b22').pack(pady=(10,0))
 
+    # ── The escape hatch ───────────────────────────────────────────────────
+    # A break that cannot be dismissed is dangerous: it takes the whole screen
+    # for 20 seconds, and the user may be presenting or in a call. Expecting
+    # them to have switched Deep Work on beforehand repeats the very mistake
+    # this project exists to fix - people forget.
+    #
+    # So the way out is not a bare "skip". The user declares a focus session,
+    # which means the choice is deliberate, it is recorded, and the protection
+    # is held for the whole session rather than only this one break.
+    closed = {'done': False}
+
+    def finish():
+        # Both the countdown and the button can reach here, so guard it.
+        if closed['done']:
+            return
+        closed['done'] = True
+        try:
+            root.quit()
+            root.destroy()
+        except Exception:
+            pass
+
+    def start_deep_work():
+        global deep_work_until
+        # Hold locally first, so the user is protected even if the server call
+        # below fails - the screen must never be seized again a second later.
+        deep_work_until = time.time() + 25 * 60
+        try:
+            import urllib.request
+            import json as _json
+            req = urllib.request.Request(
+                SERVER + '/api/deep_work_start',
+                data=_json.dumps({"duration_min": 25}).encode('utf-8'),
+                headers={'Content-Type': 'application/json'})
+            urllib.request.urlopen(req, timeout=2)
+            print("🧠 [DEEP WORK] Started from the break screen - breaks held for 25 minutes.")
+        except Exception:
+            print("🧠 [DEEP WORK] Started locally (server unreachable) - breaks held for 25 minutes.")
+        finish()
+
+    btn_frame = tk.Frame(root, bg='#0d1117')
+    btn_frame.pack(expand=True, pady=(0, 70))
+
+    tk.Button(btn_frame, text="I'm busy right now  —  Start Deep Work (25 min)",
+              font=('DM Sans', 15, 'bold'),
+              fg='#ffffff', bg='#2563eb',
+              activebackground='#1d4ed8', activeforeground='#ffffff',
+              relief='flat', bd=0, padx=30, pady=15,
+              cursor='hand2', command=start_deep_work).pack()
+
+    tk.Label(btn_frame,
+             text="Use this only if you are presenting or in a meeting.",
+             font=('DM Sans', 11), fg='#7d8590', bg='#0d1117').pack(pady=(12, 0))
+
     def countdown(count):
+        if closed['done']:
+            return                      # the user left early via Deep Work
         if count > 0:
             count_label.config(text=str(count))
             root.after(1000, countdown, count - 1)
         else:
-            try:
-                root.quit()
-                root.destroy()
-            except Exception:
-                pass
+            finish()
 
     countdown(20)
     root.mainloop()

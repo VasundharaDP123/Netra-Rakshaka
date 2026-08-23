@@ -757,7 +757,6 @@ function startIntervention() {
   breakActive = true;
   breakCount++;
   lastBreakAt = Date.now();
-  reset202020Timer('enforced break');    // a stronger alert already rested the eyes
   logEvent('crit', 'Enforced break started', '20 s · display dimmed, previous brightness restored afterwards');
 
   // Persist it, so Analytics reports breaks across sessions rather than a tally
@@ -767,32 +766,18 @@ function startIntervention() {
     body: JSON.stringify({ reason: 'Critical strain', duration: 20 })
   }).catch(() => {});
 
-  const overlay = $('overlay'), numEl = $('ov-num'), prog = $('ov-prog');
-  const TOTAL = 282;
-  overlay.classList.add('show');
-  enterBreakFullscreen().catch(showFullscreenFallback);
+  /* One break screen for everything. A break caused by critical strain now
+     shows the same 20-20-20 Visual Recovery screen as a scheduled rest, so the
+     user always sees the identical thing. force = true because an enforced
+     break must still appear even while Deep Work would normally hold rests
+     back. close202020() resets the 20-20-20 timer when it finishes, which is
+     why the separate reset call that used to be here is no longer needed. */
+  trigger202020(true);
 
-  let t = 20;
-  numEl.textContent = t;
-  prog.style.transition = 'none';
-  prog.style.strokeDashoffset = 0;
-  void prog.offsetWidth;                                  // flush the reset before animating
-  prog.style.transition = 'stroke-dashoffset 1s linear';
-
-  const iv = setInterval(() => {
-    t--;
-    numEl.textContent = Math.max(0, t);
-    prog.style.strokeDashoffset = ((20 - t) / 20) * TOTAL;
-    if (t <= 0) {
-      clearInterval(iv);
-      overlay.classList.remove('show');
-      const fsBtn = $('ov-fs-btn');
-      if (fsBtn) fsBtn.remove();
-      exitBreakFullscreen();
-      breakActive = false;
-      logEvent('ok', 'Break completed', 'brightness returned to its previous level · 50 s cooldown');
-    }
-  }, 1000);
+  setTimeout(() => {
+    breakActive = false;
+    logEvent('ok', 'Break completed', 'brightness returned to its previous level · 50 s cooldown');
+  }, 20000);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
