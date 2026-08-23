@@ -11,6 +11,7 @@ critical_count = 0
 trigger_dim = False
 last_dim_time = 0
 agent_start_time = time.time()
+_last_hold_print = 0.0    # throttles the 'why no break' messages
 
 # A single Critical packet must not dim the screen. The simulated head tilt sweeps
 # to 35 degrees every 4 seconds, which the classifier reads as Critical - so a
@@ -176,6 +177,17 @@ def show_overlay():
     countdown(20)
     root.mainloop()
 
+# Without these the socket can drop and this agent goes quiet with no clue why:
+# no sensor_update events arrive, so no break can ever fire. Say it out loud.
+@sio.event
+def connect():
+    print("🔗 [CONNECTED] Listening for strain telemetry. Breaks are armed.")
+    sync_deep_work_state()
+
+@sio.event
+def disconnect():
+    print("🔌 [DISCONNECTED] No telemetry - breaks cannot fire until this reconnects.")
+
 @sio.on('deep_work_event')
 def on_deep_work_event(data):
     global deep_work_until, critical_count
@@ -194,28 +206,56 @@ def on_deep_work_event(data):
 def on_sensor_update(data):
     global critical_count, trigger_dim, last_dim_time
 
+    # Every branch below used to return in silence, so when no break appeared
+    # there was no way to tell which rule was holding it back. Say so instead,
+    # throttled to once every few seconds so the terminal stays readable.
+    def hold(reason):
+        global _last_hold_print
+        now = time.time()
+        if now - _last_hold_print >= 5:
+            _last_hold_print = now
+            print(f"⏸  [HOLDING] {reason}")
+
     # Don't interrupt during startup, while the blink baseline is still settling
     # and blink_rate is legitimately 0.
-    if time.time() - agent_start_time < STARTUP_GRACE_SEC:
+    grace_left = STARTUP_GRACE_SEC - (time.time() - agent_start_time)
+    if grace_left > 0:
+        hold(f"start-up grace, {grace_left:.0f}s left before breaks can fire")
         return
 
     # 50 second cooldown after a break so you don't get trapped in a loop!
-    if time.time() - last_dim_time < 50:
+    cooldown_left = 50 - (time.time() - last_dim_time)
+    if cooldown_left > 0:
+        hold(f"cooldown after last break, {cooldown_left:.0f}s left")
         return
 
     # Deep Work: hold every break, and do not accumulate a streak while holding,
     # so the session does not end with a break already queued up.
     if deep_work_active():
         critical_count = 0
+        hold(f"Deep Work active, {int(deep_work_until - time.time())}s remaining")
         return
 
-    if data['strain_level'] == 'Critical':
+    # Tolerate brief flicker.
+    #
+    # This used to reset the streak to zero on a single non-Critical packet.
+    # At 5 packets a second that meant 15 consecutive packets with no flicker
+    # whatsoever, and the classifier does dip out of Critical for one packet
+    # quite often - so the count kept collapsing just before it fired, and the
+    # break never appeared. The dashboard checks once a second, so it simply
+    # does not see those dips, which is why the dashboard would break while
+    # this agent stayed silent - the exact symptom being reported.
+    #
+    # Decaying instead of resetting keeps three seconds of real evidence while
+    # still winding down when the user genuinely returns to Safe.
+    if data.get('strain_level') == 'Critical':
         critical_count += 1
         if critical_count >= CRITICAL_STREAK_REQUIRED:
             trigger_dim = True
             critical_count = 0
-    else:
-        critical_count = 0
+            print("🔴 [BREAK ARMED] Sustained Critical strain confirmed.")
+    elif critical_count > 0:
+        critical_count -= 1
 
 def main_loop():
     global trigger_dim, last_dim_time
